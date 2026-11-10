@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>GitLabMR</AssemblyName>
+    <RootNamespace>GitLabMR</RootNamespace>
+    <Version>1.0.0</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Photino: cửa sổ webview đa nền tảng (Windows = WebView2, macOS = WKWebView) -->
+    <PackageReference Include="Photino.NET" Version="3.2.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="ui.html" LogicalName="ui.html" />
+  </ItemGroup>
+
+</Project>

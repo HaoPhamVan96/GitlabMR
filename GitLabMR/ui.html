@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>GitLab MR</title>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#fff; --line:#e3e5ea; --line2:#eef0f3; --text:#1c2024; --muted:#68707d; --faint:#9aa1ac;
+  --accent:#4f5bd5; --accent-h:#4350c4; --accent-soft:#eceefc; --accent-ink:#fff;
+  --ok:#17804a; --ok-bg:#e5f5ec; --warn:#9a5b06; --warn-bg:#fcf1de; --err:#c1352b; --err-bg:#fcebea;
+  --info:#2d5ccc; --info-bg:#e8eefb; --mute:#6b7280; --mute-bg:#f0f1f4;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 2px 6px rgba(16,24,40,.06);
+  --pop:0 8px 28px rgba(16,24,40,.16);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#16171b; --panel:#1e1f24; --line:#2d2f37; --line2:#25272d; --text:#e5e6ea; --muted:#979ca8; --faint:#6b707c;
+  --accent:#7882ee; --accent-h:#8b94f3; --accent-soft:#272a46; --accent-ink:#fff;
+  --ok:#4cc07e; --ok-bg:#1a3124; --warn:#e2a443; --warn-bg:#382c16; --err:#ef7067; --err-bg:#3b1f1f;
+  --info:#82a3f4; --info-bg:#1e2840; --mute:#9399a5; --mute-bg:#272930;
+  --shadow:none; --pop:0 10px 30px rgba(0,0,0,.5);
+}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;overflow:hidden;user-select:none;-webkit-font-smoothing:antialiased}
+input,button,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- controls */
+.in{height:30px;border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:0 9px;outline:none;min-width:0;
+  transition:border-color .12s,box-shadow .12s}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.in::placeholder{color:var(--faint)}
+.in::-webkit-calendar-picker-indicator{display:none!important}
+textarea.in{height:54px;padding:6px 9px;resize:none}
+.btn{height:30px;padding:0 13px;border-radius:7px;border:1px solid var(--line);background:var(--panel);font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .12s,border-color .12s}
+.btn:hover:not(:disabled){border-color:var(--faint)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover:not(:disabled){background:var(--accent-h);border-color:var(--accent-h)}
+.btn.danger{color:var(--err)}
+.btn:disabled{opacity:.5;cursor:default}
+.icon{width:30px;height:30px;border-radius:7px;border:1px solid transparent;background:none;color:var(--muted);
+  display:inline-grid;place-items:center;flex:none}
+.icon:hover:not(:disabled){background:var(--line2);color:var(--text)}
+.icon.on{background:var(--accent-soft);color:var(--accent)}
+.icon.spinning svg{animation:rot .8s linear infinite;color:var(--accent)}
+.lh .icon{width:26px;height:26px;margin:-2px -4px -2px 0}
+.link{background:none;border:0;padding:0;color:var(--accent);font-weight:600}
+.link:hover{text-decoration:underline}
+.chk{appearance:none;width:15px;height:15px;border:1.5px solid var(--faint);border-radius:4px;margin:0;flex:none;display:grid;place-items:center;
+  background:var(--panel);cursor:pointer}
+.chk:checked,.chk:indeterminate{background:var(--accent);border-color:var(--accent)}
+.chk:checked::after{content:"";width:7px;height:4px;border:2px solid #fff;border-top:0;border-right:0;transform:translate(0,-1px) rotate(-45deg)}
+.chk:indeterminate::after{content:"";width:7px;height:2px;background:#fff;border-radius:1px}
+.chk:disabled{opacity:.5;cursor:default}
+.switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:600;white-space:nowrap}
+.switch input{display:none}
+.switch .tr{width:30px;height:17px;border-radius:9px;background:var(--line);position:relative;transition:background .15s;flex:none}
+.switch .tr::after{content:"";position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.switch input:checked+.tr{background:var(--accent)}
+.switch input:checked+.tr::after{transform:translateX(13px)}
+.opt{display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0}
+
+/* ---------- top */
+.top{display:flex;align-items:center;gap:10px;padding:10px 14px 0}
+.brand{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px}
+.brand .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center}
+.brand .logo svg{width:13px;height:13px}
+.conn-chip{margin-left:auto;display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:14px;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted);max-width:60%;font-size:12px}
+.conn-chip:hover{border-color:var(--faint)}
+.conn-chip b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.dot.ok{background:var(--ok)} .dot.err{background:var(--err)} .dot.wait{background:var(--warn);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.conn{margin:10px 14px 0;padding:10px;display:grid;grid-template-columns:1.4fr 1fr auto auto;gap:8px;align-items:center}
+.conn .mini{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
+
+/* ---------- branch bar */
+.bar{margin:10px 14px 0;padding:8px 10px;display:flex;align-items:center;gap:8px;position:relative}
+.br{display:flex;align-items:center;flex:1;min-width:0;position:relative}
+.br .tag{position:absolute;left:9px;font-size:11px;font-weight:600;color:var(--faint);pointer-events:none;text-transform:uppercase;letter-spacing:.03em}
+.br .in{width:100%;padding-left:40px;font-weight:600;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
+.sep{width:1px;height:20px;background:var(--line);margin:0 2px}
+
+.pop{position:absolute;right:8px;top:calc(100% + 6px);width:330px;padding:12px;z-index:20;box-shadow:var(--pop);
+  display:flex;flex-direction:column;gap:8px}
+.pop label.f{font-size:11px;font-weight:600;color:var(--muted);margin-top:4px}
+.pop .hint{font-size:11px;color:var(--faint)}
+
+/* ---------- list */
+.list{margin:10px 14px 0;flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.lh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.search{position:relative;flex:1;max-width:240px}
+.search svg{position:absolute;left:9px;top:8px;color:var(--faint)}
+.search .in{width:100%;height:28px;padding-left:28px}
+.count{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+.rows{flex:1;overflow-y:auto;padding:4px 0}
+.rows::-webkit-scrollbar{width:10px} .rows::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid var(--panel)}
+.row{display:flex;align-items:center;gap:10px;height:32px;padding:0 12px;cursor:pointer}
+.row:hover{background:var(--line2)}
+.name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.name .ns{color:var(--faint);font-weight:400}
+.st{display:inline-flex;align-items:center;gap:5px;max-width:52%;height:21px;padding:0 8px;border-radius:11px;font-size:11.5px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
+.st span{overflow:hidden;text-overflow:ellipsis}
+.st-ok{background:var(--ok-bg);color:var(--ok)} .st-done{background:var(--ok);color:#fff}
+.st-warn{background:var(--warn-bg);color:var(--warn)} .st-err{background:var(--err-bg);color:var(--err)}
+.st-info{background:var(--info-bg);color:var(--info)} .st-mute{background:var(--mute-bg);color:var(--mute)}
+.mr{color:var(--muted);display:grid;place-items:center;width:22px;height:22px;border-radius:5px;flex:none}
+.mr:hover{background:var(--line);color:var(--accent)}
+.spin{width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rot .7s linear infinite;flex:none}
+@keyframes rot{to{transform:rotate(360deg)}}
+.empty{height:100%;display:grid;place-items:center;color:var(--faint);text-align:center;padding:30px}
+
+/* ---------- footer */
+.foot{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.sum{flex:1;min-width:0;display:flex;gap:6px;flex-wrap:nowrap;overflow:hidden;font-size:12px;color:var(--muted)}
+.sum .st{max-width:none}
+.badge{display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--err);color:#fff;font-size:10px;font-weight:700}
+
+.logp{position:fixed;left:14px;right:14px;bottom:54px;height:42%;z-index:15;display:flex;flex-direction:column;box-shadow:var(--pop)}
+.logp .hd{display:flex;align-items:center;padding:6px 6px 6px 12px;border-bottom:1px solid var(--line);font-weight:600}
+.logp .hd .icon{margin-left:auto;width:26px;height:26px}
+.logp pre{flex:1;margin:0;padding:8px 12px;overflow:auto;font:11.5px/1.55 "Cascadia Mono",Consolas,monospace;white-space:pre-wrap;word-break:break-word;user-select:text}
+.btn.sm{height:26px;padding:0 9px;font-size:12px;gap:5px}
+.btn .cnt{min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:10.5px;display:inline-grid;place-items:center}
+.hint2{margin-left:8px;font-weight:400;color:var(--faint);font-size:12px}
+.mrtext{flex:1;margin:0;border:0;outline:none;resize:none;background:none;padding:10px 12px;
+  font:11.5px/1.6 "Cascadia Mono",Consolas,monospace;user-select:text;white-space:pre;overflow:auto}
+.l-success{color:var(--ok)} .l-warn{color:var(--warn)} .l-error{color:var(--err)} .l-t{color:var(--faint)}
+
+.toast{position:fixed;left:50%;top:12px;transform:translateX(-50%);max-width:80%;padding:8px 14px;border-radius:8px;z-index:40;
+  background:var(--text);color:var(--bg);font-weight:600;box-shadow:var(--pop);font-size:12.5px}
+.toast.err{background:var(--err);color:#fff}
+
+.modal{position:fixed;inset:0;background:rgba(10,12,16,.35);display:grid;place-items:center;z-index:30}
+.modal .card{width:min(400px,90vw);padding:18px;box-shadow:var(--pop)}
+.modal h3{margin:0 0 4px;font-size:15px}
+.modal .pair{font-family:"Cascadia Mono",Consolas,monospace;font-weight:600;color:var(--accent);margin-bottom:10px}
+.modal ul{margin:0;padding:8px 10px 8px 26px;max-height:170px;overflow:auto;background:var(--line2);border-radius:7px;font-size:12px}
+.modal .warn{margin-top:10px;color:var(--warn);font-size:12px}
+.modal .act{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.br{min-width:110px}
+.search{min-width:70px}
+@media (max-width:660px){
+  .count{display:none}
+  .search{max-width:none}
+  .conn{grid-template-columns:1fr 1fr}
+  .conn .mini{grid-column:1}
+}
+@media (max-width:520px){ .switch{font-size:0;gap:0} }
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 7.2C12 9 13 12 15.5 12"/></svg></span>GitLab MR</div>
+  <button id="chip" class="conn-chip" title="Cấu hình kết nối"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span></button>
+</header>
+
+<section id="conn" class="card conn">
+  <input id="url" class="in" list="urlList" placeholder="https://gitlab.company.com/group" spellcheck="false">
+  <datalist id="urlList"></datalist>
+  <input id="token" class="in" type="password" placeholder="Access token (scope api)" spellcheck="false">
+  <label class="mini"><input id="ssl" type="checkbox" class="chk"> Bỏ qua SSL</label>
+  <button id="btnConnect" class="btn primary">Kết nối</button>
+</section>
+
+<section class="card bar">
+  <div class="br"><span class="tag">Từ</span><input id="source" class="in" list="brList" placeholder="pre-uat" spellcheck="false"></div>
+  <button id="swap" class="icon" title="Đảo nguồn / đích"><svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg></button>
+  <div class="br"><span class="tag">Vào</span><input id="target" class="in" list="brList" placeholder="uat" spellcheck="false"></div>
+  <datalist id="brList"></datalist>
+  <button id="btnBranches" class="icon" title="Tải lại branch từ GitLab (của các project đang chọn)"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
+  <span class="sep"></span>
+  <label class="switch" title="Tạo xong merge luôn"><input id="merge" type="checkbox"><span class="tr"></span>Merge</label>
+  <button id="btnOpts" class="icon" title="Tuỳ chọn khác"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+
+  <div id="pop" class="card pop" hidden>
+    <label class="opt"><input id="autoMerge" type="checkbox" class="chk">Pipeline đang chạy → tự merge khi pass</label>
+    <label class="opt"><input id="removeSource" type="checkbox" class="chk">Xoá branch nguồn sau khi merge</label>
+    <label class="opt"><input id="squash" type="checkbox" class="chk">Squash commits</label>
+    <label class="f">Tiêu đề MR</label>
+    <input id="title" class="in" spellcheck="false">
+    <span class="hint">Biến: {source} {target} {project}</span>
+    <label class="f">Mô tả</label>
+    <textarea id="desc" class="in"></textarea>
+  </div>
+</section>
+
+<main class="card list">
+  <div class="lh">
+    <input id="all" type="checkbox" class="chk" title="Chọn / bỏ chọn các dòng đang hiển thị">    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="filter" class="in" placeholder="Lọc project…" spellcheck="false"></div>
+    <button id="pickReady" class="link" hidden>Chỉ chọn project sẵn sàng</button>
+    <span id="count" class="count"></span>
+    <button id="btnReload" class="icon" title="Tải lại danh sách project"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
+  </div>
+  <div id="rows" class="rows"><div class="empty">Nhập URL group và token rồi bấm <b>&nbsp;Kết nối</b></div></div>
+</main>
+
+<footer class="foot">
+  <button id="btnLog" class="icon" title="Nhật ký"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg></button>
+  <span id="logBadge" class="badge" hidden></span>
+  <button id="btnMr" class="btn sm" title="Xem / copy link merge request" hidden><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>MR <span id="nMr" class="cnt"></span></button>
+  <div id="sum" class="sum"></div>
+  <button id="btnStop" class="btn danger" hidden>Dừng</button>
+  <button id="btnCheck" class="btn">Kiểm tra</button>
+  <button id="btnRun" class="btn primary">Tạo MR</button>
+</footer>
+
+<div id="logp" class="card logp" hidden>
+  <div class="hd">Nhật ký<button id="logClear" class="icon" title="Xoá"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button><button id="logClose" class="icon" title="Đóng"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <pre id="log"></pre>
+</div>
+
+<div id="mrp" class="card logp" hidden>
+  <div class="hd">Merge request <span id="mrHint" class="hint2"></span>
+    <button id="mrCopy" class="btn sm primary" style="margin-left:auto"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy tất cả</button>
+    <button id="mrClose" class="icon" style="margin-left:4px" title="Đóng"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <textarea id="mrText" class="mrtext" readonly spellcheck="false"></textarea>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="card">
+    <h3 id="mTitle"></h3>
+    <div id="mPair" class="pair"></div>
+    <ul id="mList"></ul>
+    <div id="mWarn" class="warn" hidden>Branch nguồn sẽ bị xoá sau khi merge.</div>
+    <div class="act"><button id="mNo" class="btn">Huỷ</button><button id="mYes" class="btn primary">Xác nhận</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+// Photino: window.external.sendMessage / receiveMessage (Windows WebView2 + macOS WKWebView)
+const send = (type, d = {}) => window.external?.sendMessage?.(JSON.stringify({ type, ...d }));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const COPY = '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
+const EXT = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+
+const S = { projects: [], sel: new Set(), st: {}, tokenHosts: [], busy: false, connected: false, errs: 0, remote: [], remoteTotal: 0, history: [], hidden: 0 };
+const chosen = () => S.projects.filter(p => S.sel.has(p.id));
+
+const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', Failed: 'err' };
+const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', Failed: 'Lỗi' };
+
+/* ---------- helpers */
+function hostOf(u) {
+  u = (u || '').trim();
+  if (/^git@/i.test(u)) return u.slice(4).split(':')[0].toLowerCase();
+  try { return new URL(u).host.toLowerCase(); } catch { return ''; }
+}
+function tokenHint() {
+  $('#token').placeholder = S.tokenHosts.includes(hostOf($('#url').value)) ? 'Đã lưu token — để trống để dùng lại' : 'Access token (scope api)';
+}
+function fillList(id, items) { $(id).innerHTML = (items || []).map(x => `<option value="${esc(x)}">`).join(''); }
+function fillBranches() {
+  const seen = new Set(), html = [];
+  for (const b of S.remote) { seen.add(b.name); html.push(`<option value="${esc(b.name)}" label="${b.count}/${S.remoteTotal} project">`); }
+  for (const b of S.history) if (!seen.has(b)) html.push(`<option value="${esc(b)}" label="đã dùng">`);
+  $('#brList').innerHTML = html.join('');
+}
+let toastTimer;
+function toast(text, err) {
+  const t = $('#toast'); t.textContent = text; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, err ? 5000 : 2500);
+}
+function chip(text, dot, user = '') {
+  $('#chipText').textContent = text; $('#dot').className = 'dot ' + dot; $('#chipUser').textContent = user;
+}
+function opts() {
+  return {
+    source: $('#source').value.trim(), target: $('#target').value.trim(), title: $('#title').value.trim(), description: $('#desc').value,
+    merge: $('#merge').checked, autoMerge: $('#autoMerge').checked, removeSource: $('#removeSource').checked, squash: $('#squash').checked,
+    ignoreSsl: $('#ssl').checked,
+  };
+}
+let optTimer;
+function saveOpts() { clearTimeout(optTimer); optTimer = setTimeout(() => send('options', opts()), 300); }
+let selTimer;
+function saveSel() {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => send('selection', { paths: S.projects.filter(p => S.sel.has(p.id)).map(p => p.path) }), 300);
+}
+function runLabel() {
+  const n = chosen().length;
+  $('#btnRun').textContent = ($('#merge').checked ? 'Tạo & merge' : 'Tạo MR') + (n ? ` (${n})` : '');
+  $('#autoMerge').disabled = !$('#merge').checked;
+}
+
+/* ---------- list */
+function visible() {
+  const f = $('#filter').value.trim().toLowerCase();
+  return f ? S.projects.filter(p => p.path.toLowerCase().includes(f)) : S.projects;
+}
+function rowHtml(p) {
+  const s = S.st[p.id], on = S.sel.has(p.id);
+  let badge = '';
+  if (s) badge = `<span class="st st-${s.cls}" title="${esc(s.text)}">${s.spin ? '<i class="spin"></i>' : ''}<span>${esc(s.text)}</span></span>`;
+  const link = s?.url ? `<a class="mr" href="#" data-copy="${esc(s.url)}" title="Copy link MR">${COPY}</a><a class="mr" href="#" data-url="${esc(s.url)}" title="Mở MR">${EXT}</a>` : '';
+  return `<label class="row" data-id="${p.id}" title="${esc(p.path)}${p.defaultBranch ? ' · default: ' + esc(p.defaultBranch) : ''}">` +
+    `<input type="checkbox" class="chk" ${on ? 'checked' : ''} ${S.busy ? 'disabled' : ''}>` +
+    `<span class="name"><span class="ns">${esc(p.ns)}</span>${esc(p.name)}</span>${badge}${link}</label>`;
+}
+function render() {
+  const v = visible();
+  $('#rows').innerHTML = S.projects.length
+    ? (v.length ? v.map(rowHtml).join('') : '<div class="empty">Không có project nào khớp bộ lọc</div>')
+    : `<div class="empty">${S.connected ? 'Không có project nào' : 'Nhập URL group và token rồi bấm <b>&nbsp;Kết nối</b>'}</div>`;
+  counts();
+}
+function counts() {
+  const v = visible(), n = v.filter(p => S.sel.has(p.id)).length;
+  const all = $('#all');
+  all.checked = v.length > 0 && n === v.length; all.indeterminate = n > 0 && n < v.length; all.disabled = S.busy || !v.length;
+  $('#count').textContent = S.projects.length ? `${chosen().length}/${S.projects.length} đã chọn` : '';
+  $('#count').title = S.hidden ? `Đang ẩn ${S.hidden} project (libraries + shared) theo cấu hình` : '';
+  runLabel();
+}
+/* ---------- MR links */
+function mrItems() { return S.projects.filter(p => S.st[p.id]?.url); }
+function mrText() {
+  const items = mrItems();
+  if (!items.length) return '';
+  const head = S.pair ? `MR ${S.pair}\n` : '';
+  return head + items.map(p => `- ${p.ns}${p.name} (${LABEL[S.st[p.id].outcome] || ''}): ${S.st[p.id].url}`).join('\n');
+}
+function updateMr() {
+  const n = mrItems().length;
+  $('#btnMr').hidden = n === 0; $('#nMr').textContent = n;
+  $('#mrHint').textContent = n ? `${n} link` : '';
+  if (!$('#mrp').hidden) $('#mrText').value = mrText();
+}
+function copyText(text, what) { if (!text) return; send('copy', { text }); toast(`Đã copy ${what}`); }
+function showPanel(id) {
+  for (const x of ['#logp', '#mrp']) if (x !== id) $(x).hidden = true;
+  const p = $(id); p.hidden = !p.hidden;
+  $('#btnLog').classList.toggle('on', !$('#logp').hidden);
+  return !p.hidden;
+}
+
+function updateRow(id) {
+  const el = document.querySelector(`.row[data-id="${id}"]`);
+  const p = S.projects.find(x => x.id === id);
+  if (el && p) el.outerHTML = rowHtml(p);
+}
+
+/* ---------- actions */
+function connect() {
+  if (S.busy) return;
+  const url = $('#url').value.trim();
+  if (!url) return toast('Nhập URL group hoặc project', true);
+  chip('Đang kết nối…', 'wait');
+  send('connect', { url, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
+}
+function run(dryRun) {
+  if (S.busy) return;
+  if (!S.connected) return toast('Kết nối trước đã', true);
+  const o = opts();
+  if (!o.source || !o.target) return toast('Nhập branch nguồn và đích', true);
+  if (o.source === o.target) return toast('Branch nguồn và đích phải khác nhau', true);
+  const list = chosen();
+  if (!list.length) return toast('Chưa chọn project nào', true);
+  const payload = { ...o, dryRun, ids: list.map(p => p.id) };
+  S.pair = `${o.source} → ${o.target}`;
+  $('#pop').hidden = true; $('#btnOpts').classList.remove('on');
+  if (dryRun) return send('run', payload);
+  $('#mTitle').textContent = `${o.merge ? 'Tạo MR và merge' : 'Tạo MR'} cho ${list.length} project?`;
+  $('#mPair').textContent = `${o.source}  →  ${o.target}`;
+  $('#mList').innerHTML = list.map(p => `<li>${esc(p.ns + p.name)}</li>`).join('');
+  $('#mWarn').hidden = !(o.merge && o.removeSource);
+  $('#mYes').textContent = o.merge ? 'Tạo & merge' : 'Tạo MR';
+  $('#modal').hidden = false; $('#mYes').focus();
+  $('#mYes').onclick = () => { $('#modal').hidden = true; send('run', payload); };
+}
+function setBusy(b) {
+  S.busy = b;
+  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload']) $(id).disabled = b;
+  $('#btnStop').hidden = !b;
+  document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
+  counts();
+}
+function showSummary(counts, dryRun) {
+  const order = ['Merged', 'Created', 'AutoMerge', 'Ready', 'AlreadyOpen', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
+  $('#sum').innerHTML = order.filter(k => counts[k]).map(k => `<span class="st st-${CLS[k]}">${counts[k]} ${LABEL[k]}</span>`).join('');
+  $('#pickReady').hidden = !(dryRun && counts.Ready);
+}
+
+/* ---------- messages from C# */
+const H = {
+  init(d) {
+    S.tokenHosts = d.tokenHosts || [];
+    S.history = d.branches || [];
+    fillList('#urlList', d.urls); fillBranches();
+    $('#url').value = d.lastUrl || ''; $('#ssl').checked = !!d.ignoreSsl;
+    $('#source').value = d.source || ''; $('#target').value = d.target || '';
+    $('#title').value = d.title || ''; $('#merge').checked = !!d.merge; $('#autoMerge').checked = !!d.autoMerge;
+    $('#removeSource').checked = !!d.removeSource; $('#squash').checked = !!d.squash;
+    tokenHint(); runLabel();
+    if (d.lastUrl && S.tokenHosts.includes(hostOf(d.lastUrl))) connect(); else $('#url').focus();
+  },
+  connected(d) {
+    S.connected = true; S.projects = d.projects; S.st = {}; S.hidden = d.hidden || 0;
+    S.sel = new Set(d.projects.filter(p => p.selected).map(p => p.id));
+    S.tokenHosts = d.tokenHosts || S.tokenHosts;
+    fillList('#urlList', d.urls); $('#token').value = ''; tokenHint();
+    chip(`${d.scope} · ${d.projects.length} project`, 'ok', '@' + d.user);
+    $('#conn').hidden = true; $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
+    render(); updateMr();
+  },
+  busy(d) { setBusy(d.value); if (!d.value) $('#btnBranches').classList.remove('spinning'); },
+  branches(d) { S.history = d.branches || []; fillBranches(); },
+  branchesLoading() { $('#btnBranches').classList.add('spinning'); },
+  remoteBranches(d) {
+    S.remote = d.items || []; S.remoteTotal = d.total || 0; fillBranches();
+    $('#btnBranches').classList.remove('spinning');
+    toast(`Đã tải ${S.remote.length} branch từ ${S.remoteTotal} project`);
+  },
+  row(d) {
+    S.st[d.id] = d.state === 'wait' ? { cls: 'mute', text: 'Chờ…' }
+      : d.state === 'run' ? { cls: 'info', text: 'Đang xử lý', spin: true }
+      : { cls: CLS[d.outcome] || 'mute', text: d.text, url: d.url, outcome: d.outcome };
+    updateRow(d.id);
+    if (d.state === 'done') updateMr();
+  },
+  done(d) { showSummary(d.counts || {}, d.dryRun); },
+  log(d) {
+    const pre = $('#log'), atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+    pre.insertAdjacentHTML('beforeend', `<span class="l-t">${esc(d.time)}</span> <span class="l-${d.kind}">${esc(d.text)}</span>\n`);
+    if (atEnd) pre.scrollTop = pre.scrollHeight;
+    if (d.kind === 'error' && $('#logp').hidden) { S.errs++; $('#logBadge').textContent = S.errs; $('#logBadge').hidden = false; }
+  },
+  error(d) {
+    toast(d.text, true);
+    if (!S.connected) { chip('Lỗi kết nối', 'err'); $('#conn').hidden = false; }
+  },
+};
+window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } catch { return; } H[d?.type]?.(d); });
+
+/* ---------- UI events */
+$('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
+$('#btnConnect').onclick = connect;
+for (const id of ['#url', '#token']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+$('#url').addEventListener('input', tokenHint);
+$('#ssl').onchange = saveOpts;
+$('#swap').onclick = () => { const s = $('#source').value; $('#source').value = $('#target').value; $('#target').value = s; saveOpts(); };
+for (const id of ['#source', '#target', '#title', '#desc']) $(id).addEventListener('input', saveOpts);
+for (const id of ['#merge', '#autoMerge', '#removeSource', '#squash']) $(id).addEventListener('change', () => { runLabel(); saveOpts(); });
+$('#btnOpts').onclick = e => { e.stopPropagation(); const p = $('#pop'); p.hidden = !p.hidden; $('#btnOpts').classList.toggle('on', !p.hidden); };
+document.addEventListener('click', e => {
+  if (!$('#pop').hidden && !e.target.closest('#pop') && !e.target.closest('#btnOpts')) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
+});
+
+$('#filter').addEventListener('input', render);
+$('#all').onchange = e => { for (const p of visible()) e.target.checked ? S.sel.add(p.id) : S.sel.delete(p.id); render(); saveSel(); };
+$('#rows').addEventListener('change', e => {
+  const row = e.target.closest('.row'); if (!row) return;
+  const id = +row.dataset.id; e.target.checked ? S.sel.add(id) : S.sel.delete(id); counts(); saveSel();
+});
+$('#rows').addEventListener('click', e => {
+  const a = e.target.closest('.mr'); if (!a) return;
+  e.preventDefault(); e.stopPropagation();
+  if (a.dataset.copy) copyText(a.dataset.copy, 'link MR'); else send('open', { url: a.dataset.url });
+});
+$('#pickReady').onclick = () => {
+  for (const p of S.projects) S.st[p.id]?.outcome === 'Ready' ? S.sel.add(p.id) : S.sel.delete(p.id);
+  render(); saveSel(); toast(`Đã chọn ${chosen().length} project sẵn sàng`);
+};
+
+$('#btnBranches').onclick = () => {
+  if (S.busy) return;
+  if (!S.connected) return toast('Kết nối trước đã', true);
+  send('loadBranches', { ids: chosen().map(p => p.id) });
+};
+$('#btnReload').onclick = () => { if (!S.busy) connect(); };
+$('#btnCheck').onclick = () => run(true);
+$('#btnRun').onclick = () => run(false);
+$('#btnStop').onclick = () => send('stop');
+$('#mNo').onclick = () => $('#modal').hidden = true;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; $('#pop').hidden = true; $('#logp').hidden = true; $('#mrp').hidden = true; } });
+
+$('#btnLog').onclick = () => {
+  if (showPanel('#logp')) { S.errs = 0; $('#logBadge').hidden = true; $('#log').scrollTop = $('#log').scrollHeight; }
+};
+$('#logClose').onclick = () => { $('#logp').hidden = true; $('#btnLog').classList.remove('on'); };
+$('#btnMr').onclick = () => { if (showPanel('#mrp')) $('#mrText').value = mrText(); };
+$('#mrClose').onclick = () => $('#mrp').hidden = true;
+$('#mrCopy').onclick = () => copyText(mrText(), `${mrItems().length} link MR`);
+$('#logClear').onclick = () => $('#log').innerHTML = '';
+document.addEventListener('contextmenu', e => { if (!e.target.closest('input,textarea,pre')) e.preventDefault(); });
+
+send('ready');
+</script>
+</body>
+</html>
