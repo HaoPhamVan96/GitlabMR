@@ -146,8 +146,25 @@ public sealed class AppHost
     {
         type = "wsList",
         active = _ws.Id,
-        items = _cfg.Workspaces.Select(w => new { id = w.Id, name = w.Name, connected = State(w).Connected != null }),
+        items = _cfg.Workspaces.Select(w =>
+        {
+            ProjectRef.TryParse(w.Sources.FirstOrDefault(), out var r, out _);
+            return new { id = w.Id, name = w.Name, host = r?.Host ?? "", shortHost = ShortHost(r?.Host), connected = State(w).Connected != null };
+        }),
     });
+
+    /// <summary>"gitlab.fpt.com" -> "gitlab.fpt", "git.company.com.vn" -> "git.company", bỏ "www." và port.</summary>
+    private static string ShortHost(string? host)
+    {
+        if (string.IsNullOrEmpty(host)) return "";
+        var h = host.Split(':')[0];
+        if (h.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) h = h[4..];
+        var parts = h.Split('.').ToList();
+        if (parts.Count <= 2 || parts.All(p => p.All(char.IsDigit))) return h; // IP hoặc tên ngắn: giữ nguyên
+        parts.RemoveAt(parts.Count - 1); // TLD
+        if (parts.Count > 2 && parts[^1] is "com" or "co" or "net" or "org" or "edu" or "gov") parts.RemoveAt(parts.Count - 1);
+        return string.Join('.', parts);
+    }
 
     private void ApplyOptions(JsonNode m)
     {

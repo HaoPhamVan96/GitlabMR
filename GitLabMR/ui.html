@@ -72,8 +72,9 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .wstabs{display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px 0}
 .wstabs::-webkit-scrollbar{display:none}
 .wstab{height:28px;padding:0 11px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;
-  white-space:nowrap;display:flex;align-items:center;gap:6px;max-width:170px;flex:none;transition:background .12s,color .12s}
-.wstab .t{overflow:hidden;text-overflow:ellipsis}
+  white-space:nowrap;display:flex;align-items:center;gap:6px;max-width:230px;flex:none;transition:background .12s,color .12s}
+.wstab .t{overflow:hidden;text-overflow:ellipsis;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px}
+.wstab .t i{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-weight:400;color:var(--faint);margin-left:6px;font-size:11.5px}
 .wstab:hover:not(:disabled){background:var(--line2);color:var(--text)}
 .wstab.on{background:var(--panel);border-color:var(--line);color:var(--text);box-shadow:var(--shadow)}
 .wstab .dot{width:6px;height:6px}
@@ -311,9 +312,14 @@ function tokenHint() {
   $('#token').placeholder = S.wsHasToken ? 'Đã lưu token — để trống để dùng lại' : 'Access token của GitLab này (scope api)';
 }
 function renderWsTabs() {
-  $('#wsTabs').innerHTML = S.wsList.map(w =>
-    `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(w.name)}${w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : ''}" ${S.busy ? 'disabled' : ''}>` +
-    `<span class="dot${w.connected ? ' ok' : ''}"></span><span class="t">${esc(w.name)}</span></button>`).join('');
+  $('#wsTabs').innerHTML = S.wsList.map(w => {
+    // Nhãn chính = GitLab host rút gọn (gitlab.fpt, gitlab.fis…), tên workspace in mờ để phân biệt
+    const main = w.shortHost || w.name;
+    const sub = w.shortHost && w.name && w.name !== w.shortHost ? `<i>${esc(w.name)}</i>` : '';
+    const tip = [w.host, w.name].filter(Boolean).join(' · ') + (w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : '');
+    return `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(tip)}" ${S.busy ? 'disabled' : ''}>` +
+      `<span class="dot${w.connected ? ' ok' : ''}"></span><span class="t">${esc(main)}${sub}</span></button>`;
+  }).join('');
 }
 function fillList(id, items) { $(id).innerHTML = (items || []).map(x => `<option value="${esc(x)}">`).join(''); }
 function fillBranches() {
