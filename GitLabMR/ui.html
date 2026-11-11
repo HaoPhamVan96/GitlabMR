@@ -87,6 +87,12 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .conn .ws-head .lbl{font-size:12px;font-weight:700}
 .conn .ws-head .in{flex:1;max-width:320px;font-weight:600}
 .conn .ws-head .btn{margin-left:auto}
+.conn .cred{display:flex;gap:8px;min-width:0}
+.conn .cred .in{flex:1;min-width:0}
+.conn .cred #gUser{flex:0 1 180px}
+.wstab .kind{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:10px;font-weight:700;
+  color:#fff;background:#3f8e5b;border-radius:4px;padding:1px 4px;margin-left:6px;text-transform:uppercase;letter-spacing:.03em}
+.bar .seg button:disabled{opacity:.35;cursor:not-allowed}
 .conn-chip:hover{border-color:var(--faint)}
 .conn-chip b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
@@ -207,13 +213,19 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 <section id="conn" class="card conn">
   <div class="ws-head">
     <span class="lbl">Workspace</span>
+    <div id="kindSeg" class="seg" title="Loại server">
+      <button data-kind="gitlab">GitLab</button>
+      <button data-kind="gerrit">Gerrit</button>
+    </div>
     <input id="wsName" class="in" placeholder="Tên workspace (vd: peoplex, peoplex2024)" spellcheck="false">
     <button id="wsDel" class="btn sm danger" title="Xoá workspace này">Xoá</button>
   </div>
-  <div class="src-head"><b>Group / repo</b><span class="hint">Mỗi dòng 1 link — group thì lấy hết project bên trong, repo thì thêm đúng repo đó. Ctrl+Enter để kết nối.</span></div>
-  <textarea id="url" class="in src" spellcheck="false" placeholder="https://gitlab.company.com/my-group
-https://gitlab.company.com/other-group/some-repo"></textarea>
-  <input id="token" class="in" type="password" placeholder="Access token (scope api)" spellcheck="false">
+  <div class="src-head"><b id="srcTitle">Group / repo</b><span id="srcHint" class="hint"></span></div>
+  <textarea id="url" class="in src" spellcheck="false"></textarea>
+  <div class="cred">
+    <input id="gUser" class="in" placeholder="Username Gerrit" spellcheck="false" hidden>
+    <input id="token" class="in" type="password" placeholder="Access token (scope api)" spellcheck="false">
+  </div>
   <label class="mini"><input id="ssl" type="checkbox" class="chk"> Bỏ qua SSL</label>
   <button id="btnConnect" class="btn primary">Kết nối</button>
 </section>
@@ -316,7 +328,8 @@ const MODES = {
   branch: { tagA: 'Từ', tagB: 'Tên', phA: 'prod', phB: 'feature/jwt' },
 };
 S.mode = 'mr';
-S.vals = { mr: { a: '', b: '' }, branch: { a: '', b: '' } };
+S.kind = 'gitlab';
+S.vals ={ mr: { a: '', b: '' }, branch: { a: '', b: '' } };
 function syncVals() { S.vals[S.mode] = { a: $('#source').value.trim(), b: $('#target').value.trim() }; }
 function applyMode() {
   const M = MODES[S.mode], br = S.mode === 'branch';
@@ -328,11 +341,18 @@ function applyMode() {
   for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts']) $(id).hidden = br;
   $('#arrow').hidden = !br;
   document.querySelector('.bar').classList.toggle('branch', br);
-  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
+  document.querySelectorAll('#modeSeg button').forEach(b => {
+    b.classList.toggle('on', b.dataset.mode === S.mode);
+    if (b.dataset.mode === 'mr') {
+      b.disabled = S.busy || S.kind === 'gerrit';
+      b.title = S.kind === 'gerrit' ? 'Gerrit: chỉ hỗ trợ tạo branch' : 'Tạo / merge Merge Request';
+    }
+  });
   if (br) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
   runLabel();
 }
 function setMode(m) {
+  if (m === 'mr' && S.kind === 'gerrit') return toast('Gerrit chỉ hỗ trợ tạo branch', true);
   if (m === S.mode) return;
   syncVals(); S.mode = m; applyMode();
   $('#sum').innerHTML = ''; $('#pickReady').hidden = true;
@@ -346,13 +366,37 @@ function hostOf(u) {
   try { return new URL(u).host.toLowerCase(); } catch { return ''; }
 }
 function tokenHint() {
-  $('#token').placeholder = S.wsHasToken ? 'Đã lưu token — để trống để dùng lại' : 'Access token của GitLab này (scope api)';
+  const g = S.kind === 'gerrit';
+  $('#token').placeholder = S.wsHasToken ? (g ? 'Đã lưu HTTP password — để trống để dùng lại' : 'Đã lưu token — để trống để dùng lại')
+    : (g ? 'HTTP password (Gerrit → Settings → HTTP Credentials)' : 'Access token của GitLab này (scope api)');
+}
+/* Loại workspace: GitLab (MR + branch) hoặc Gerrit (chỉ tạo branch) */
+const KINDS = {
+  gitlab: {
+    title: 'Group / repo',
+    hint: 'Mỗi dòng 1 link — group thì lấy hết project bên trong, repo thì thêm đúng repo đó. Ctrl+Enter để kết nối.',
+    ph: 'https://gitlab.company.com/my-group\nhttps://gitlab.company.com/other-group/some-repo',
+  },
+  gerrit: {
+    title: 'Project Gerrit',
+    hint: 'Mỗi dòng 1 link — kết thúc bằng / là lấy mọi project bên dưới, còn lại là đúng project đó (dán link clone cũng được). Chỉ hỗ trợ tạo branch.',
+    ph: 'https://review.company.com/peoplex/api/\nhttps://review.company.com/a/peoplex/api/core-pr',
+  },
+};
+function applyKind() {
+  const K = KINDS[S.kind], g = S.kind === 'gerrit';
+  $('#srcTitle').textContent = K.title; $('#srcHint').textContent = K.hint; $('#url').placeholder = K.ph;
+  $('#gUser').hidden = !g;
+  document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('on', b.dataset.kind === S.kind));
+  if (g && S.mode !== 'branch') { syncVals(); S.mode = 'branch'; }
+  tokenHint(); applyMode();
 }
 function renderWsTabs() {
   $('#wsTabs').innerHTML = S.wsList.map(w => {
     // Nhãn chính = GitLab host rút gọn (gitlab.fpt, gitlab.fis…), tên workspace in mờ để phân biệt
     const main = w.shortHost || w.name;
-    const sub = w.shortHost && w.name && w.name !== w.shortHost ? `<i>${esc(w.name)}</i>` : '';
+    const sub = (w.kind === 'gerrit' ? '<em class="kind">Gerrit</em>' : '') +
+      (w.shortHost && w.name && w.name !== w.shortHost ? `<i>${esc(w.name)}</i>` : '');
     const tip = [w.host, w.name].filter(Boolean).join(' · ') + (w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : '');
     return `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(tip)}" ${S.busy ? 'disabled' : ''}>` +
       `<span class="dot${w.connected ? ' ok' : ''}"></span><span class="t">${esc(main)}${sub}</span></button>`;
@@ -477,7 +521,8 @@ function connect() {
   if (!urls) { $('#conn').hidden = false; return toast('Nhập ít nhất 1 link group hoặc repo', true); }
   chip('Đang kết nối…', 'wait');
   S.fresh = true;
-  send('connect', { name: $('#wsName').value.trim(), urls, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
+  send('connect', { kind: S.kind, name: $('#wsName').value.trim(), user: $('#gUser').value.trim(), urls,
+    token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
 }
 function run(dryRun) {
   if (S.busy) return;
@@ -505,7 +550,8 @@ function run(dryRun) {
 function setBusy(b) {
   S.busy = b;
   for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
-  document.querySelectorAll('#modeSeg button').forEach(x => x.disabled = b);
+  document.querySelectorAll('#modeSeg button, #kindSeg button').forEach(x => x.disabled = b || (x.dataset.mode === 'mr' && S.kind === 'gerrit'));
+  $('#gUser').disabled = b;
   renderWsTabs();
   $('#btnStop').hidden = !b;
   document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
@@ -524,7 +570,7 @@ const H = {
     fillBranches();
     $('#title').value = d.title || ''; $('#merge').checked = !!d.merge; $('#autoMerge').checked = !!d.autoMerge;
     $('#removeSource').checked = !!d.removeSource; $('#squash').checked = !!d.squash;
-    runLabel();
+    applyKind();
   },
   wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); },
   wsInfo(d) {
@@ -535,7 +581,9 @@ const H = {
     $('#token').value = ''; tokenHint();
     S.vals = { mr: { a: d.source || '', b: d.target || '' }, branch: { a: d.branchBase || '', b: d.branchName || '' } };
     S.mode = d.mode === 'branch' ? 'branch' : 'mr';
-    applyMode();
+    S.kind = d.kind === 'gerrit' ? 'gerrit' : 'gitlab';
+    $('#gUser').value = d.username || '';
+    applyKind();
     $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
     const ready = S.wsHasToken && (d.sources || []).length > 0;
     chip(ready ? 'Đang tải…' : 'Chưa cấu hình', ready ? 'wait' : '');
@@ -590,6 +638,16 @@ window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } c
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
 document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });
+document.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => {
+  if (S.busy || S.kind === b.dataset.kind) return;
+  S.kind = b.dataset.kind; S.wsHasToken = false; // đổi loại server thì phải nhập lại token / password
+  applyKind();
+  // Gợi ý username Gerrit từ link clone dạng https://user@host/...
+  if (S.kind === 'gerrit' && !$('#gUser').value) {
+    const m = $('#url').value.match(/https?:\/\/([^@\/\s:]+)@/); if (m) $('#gUser').value = m[1];
+  }
+  toast(S.kind === 'gerrit' ? 'Gerrit: nhập username + HTTP password, chỉ hỗ trợ tạo branch' : 'GitLab: nhập access token (scope api)');
+});
 $('#wsTabs').addEventListener('click', e => {
   const b = e.target.closest('.wstab'); if (!b || S.busy) return;
   if (b.dataset.ws === S.wsActive) { $('#conn').hidden = !$('#conn').hidden; return; }

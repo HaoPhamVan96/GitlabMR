@@ -8,6 +8,10 @@ public sealed class Workspace
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
     public string Name { get; set; } = "Workspace";
+    /// <summary>"gitlab" (MR + branch) hoặc "gerrit" (chỉ tạo branch).</summary>
+    public string Kind { get; set; } = "gitlab";
+    /// <summary>Username Gerrit (GitLab không cần).</summary>
+    public string? Username { get; set; }
     /// <summary>Mỗi phần tử là URL group hoặc repo (cùng 1 GitLab host).</summary>
     public List<string> Sources { get; set; } = new();
     /// <summary>Token đã bảo vệ (Platform.ProtectToken): Windows DPAPI, macOS Keychain.</summary>

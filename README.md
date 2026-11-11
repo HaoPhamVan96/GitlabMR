@@ -18,6 +18,7 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - **Tạo MR** hoặc **Tạo & merge**: dùng lại MR đang mở nếu có, chờ GitLab check mergeable rồi merge;
   pipeline đang chạy thì có thể bật auto-merge. Không merge được thì ghi rõ lý do (conflict, chưa approve, draft…).
 - **Tạo branch hàng loạt** (chế độ **Branch** trên thanh): nhập branch gốc (vd `prod`) và tên mới (vd `feature/jwt`) → tạo cho mọi repo đã tick; repo thiếu branch gốc hoặc đã có branch đó thì bỏ qua.
+- **Gerrit** (chọn loại workspace = Gerrit): đăng nhập username + HTTP password, nhập link prefix (vd `https://review.company.com/peoplex/api/`) hoặc link clone từng project; chỉ hỗ trợ **tạo branch**, chế độ MR bị khoá.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
 
@@ -73,5 +74,6 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/AppHost.cs` | Cầu nối JS ↔ C#: kết nối, load branch, chạy batch |
 | `GitLabMR/MrWorkflow.cs` | Luồng 1 project: check branch → compare → tạo/dùng lại MR → merge |
 | `GitLabMR/GitLabClient.cs` | GitLab REST API v4 |
+| `GitLabMR/GerritClient.cs` | Gerrit REST API (liệt kê project, tạo branch) |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |
 | `GitLabMR/ui.html` | Giao diện |

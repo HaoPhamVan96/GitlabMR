@@ -135,7 +135,7 @@ public sealed class GlMergeRequest
 }
 
 /// <summary>Client tối giản cho GitLab REST API v4, xác thực bằng Personal/Project Access Token.</summary>
-public sealed class GitLabClient : IDisposable
+public sealed class GitLabClient : IBranchApi
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -162,6 +162,13 @@ public sealed class GitLabClient : IDisposable
     }
 
     public void Dispose() => _http.Dispose();
+
+    // ---- IBranchApi (dùng chung với Gerrit cho chế độ tạo branch)
+    Task<bool> IBranchApi.BranchExistsAsync(GlProject p, string branch, CancellationToken ct) => BranchExistsAsync(p.Id, branch, ct);
+    Task<GlBranch> IBranchApi.CreateBranchAsync(GlProject p, string name, string fromRef, CancellationToken ct) => CreateBranchAsync(p.Id, name, fromRef, ct);
+    Task<List<GlBranch>> IBranchApi.GetBranchesAsync(GlProject p, CancellationToken ct) => GetBranchesAsync(p.Id, ct);
+    public string BranchUrl(GlProject p, string branch) =>
+        $"{p.WebUrl.TrimEnd('/')}/-/tree/{Uri.EscapeDataString(branch).Replace("%2F", "/")}";
 
     private static string Esc(string s) => Uri.EscapeDataString(s);
 

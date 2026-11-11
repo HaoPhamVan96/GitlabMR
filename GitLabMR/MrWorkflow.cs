@@ -14,29 +14,27 @@ public sealed record MrResult(MrOutcome Outcome, string Message, string? Url = n
 /// <summary>Tạo branch hàng loạt: branch mới từ branch gốc, bỏ qua nếu đã có.</summary>
 public static class BranchWorkflow
 {
-    private static string TreeUrl(GlProject p, string branch) => $"{p.WebUrl.TrimEnd('/')}/-/tree/{Uri.EscapeDataString(branch).Replace("%2F", "/")}";
-
-    /// <summary>Kiểm tra (không tạo gì).</summary>
-    public static async Task<MrResult> CheckAsync(GitLabClient gl, GlProject p, string baseBranch, string newBranch, CancellationToken ct)
+    /// <summary>Kiểm tra (không tạo gì). Dùng được cho cả GitLab và Gerrit.</summary>
+    public static async Task<MrResult> CheckAsync(IBranchApi api, GlProject p, string baseBranch, string newBranch, CancellationToken ct)
     {
-        var baseTask = gl.BranchExistsAsync(p.Id, baseBranch, ct);
-        var newTask = gl.BranchExistsAsync(p.Id, newBranch, ct);
+        var baseTask = api.BranchExistsAsync(p, baseBranch, ct);
+        var newTask = api.BranchExistsAsync(p, newBranch, ct);
         if (!await baseTask) return new(MrOutcome.MissingBranch, $"Thiếu branch gốc '{baseBranch}'");
-        if (await newTask) return new(MrOutcome.BranchExists, $"Đã có '{newBranch}'", TreeUrl(p, newBranch));
+        if (await newTask) return new(MrOutcome.BranchExists, $"Đã có '{newBranch}'", api.BranchUrl(p, newBranch));
         return new(MrOutcome.Ready, $"Sẵn sàng tạo từ '{baseBranch}'");
     }
 
-    public static async Task<MrResult> CreateAsync(GitLabClient gl, GlProject p, string baseBranch, string newBranch,
+    public static async Task<MrResult> CreateAsync(IBranchApi api, GlProject p, string baseBranch, string newBranch,
         Action<string, LogKind> log, CancellationToken ct)
     {
-        var check = await CheckAsync(gl, p, baseBranch, newBranch, ct);
+        var check = await CheckAsync(api, p, baseBranch, newBranch, ct);
         if (check.Outcome != MrOutcome.Ready)
         {
             log(check.Message + ", bỏ qua.", LogKind.Warn);
             return check;
         }
-        var b = await gl.CreateBranchAsync(p.Id, newBranch, baseBranch, ct);
-        var url = b.WebUrl ?? TreeUrl(p, newBranch);
+        var b = await api.CreateBranchAsync(p, newBranch, baseBranch, ct);
+        var url = b.WebUrl ?? api.BranchUrl(p, newBranch);
         log($"Đã tạo branch '{newBranch}' từ '{baseBranch}': {url}", LogKind.Success);
         return new(MrOutcome.BranchCreated, $"Đã tạo '{newBranch}'", url);
     }

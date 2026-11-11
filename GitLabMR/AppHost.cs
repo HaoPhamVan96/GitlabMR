@@ -16,7 +16,7 @@ public sealed class AppHost
     /// <summary>Trạng thái runtime của 1 workspace: client + project đã load (để chuyển tab không phải tải lại).</summary>
     private sealed class WsState
     {
-        public GitLabClient? Client;
+        public IBranchApi? Client;
         public string ClientKey = "";
         public Dictionary<long, GlProject> Projects = new();
         public List<GlProject> Ordered = new();
@@ -90,7 +90,7 @@ public sealed class AppHost
                     if (_cts == null) await DeleteWorkspaceAsync(Str(m, "id"));
                     break;
                 case "connect":
-                    await GuardAsync(ct => ConnectAsync(Str(m, "name"), (string?)m["urls"] ?? "", Str(m, "token"), Bool(m, "ignoreSsl"), ct));
+                    await GuardAsync(ct => ConnectAsync(Str(m, "kind"), Str(m, "name"), Str(m, "user"), (string?)m["urls"] ?? "", Str(m, "token"), Bool(m, "ignoreSsl"), ct));
                     break;
                 case "run":
                     await GuardAsync(ct => RunBatchAsync(m, ct));
@@ -152,10 +152,17 @@ public sealed class AppHost
         active = _ws.Id,
         items = _cfg.Workspaces.Select(w =>
         {
-            ProjectRef.TryParse(w.Sources.FirstOrDefault(), out var r, out _);
-            return new { id = w.Id, name = w.Name, host = r?.Host ?? "", shortHost = ShortHost(r?.Host), connected = State(w).IsConnected };
+            var host = HostOf(w);
+            return new { id = w.Id, name = w.Name, kind = w.Kind, host, shortHost = ShortHost(host), connected = State(w).IsConnected };
         }),
     });
+
+    private static string HostOf(Workspace w)
+    {
+        var first = w.Sources.FirstOrDefault();
+        if (w.Kind == "gerrit") return GerritRef.TryParse(first, out var g, out _) ? g!.Host : "";
+        return ProjectRef.TryParse(first, out var r, out _) ? r!.Host : "";
+    }
 
     /// <summary>"gitlab.fpt.com" -> "gitlab.fpt", "git.company.com.vn" -> "git.company", bỏ "www." và port.</summary>
     private static string ShortHost(string? host)
@@ -233,6 +240,8 @@ public sealed class AppHost
             branchBase = _ws.BranchBase,
             branchName = _ws.BranchName,
             mode = _ws.Mode,
+            kind = _ws.Kind,
+            username = _ws.Username,
         });
 
         var st = St;
@@ -243,7 +252,7 @@ public sealed class AppHost
         }
         else if (_ws.Token != null && _ws.Sources.Count > 0)
         {
-            await GuardAsync(ct => ConnectAsync(_ws.Name, string.Join('\n', _ws.Sources), "", _ws.IgnoreSsl, ct));
+            await GuardAsync(ct => ConnectAsync(_ws.Kind, _ws.Name, _ws.Username ?? "", string.Join('\n', _ws.Sources), "", _ws.IgnoreSsl, ct));
         }
     }
 
@@ -267,28 +276,70 @@ public sealed class AppHost
         await SwitchAsync(_ws.Id == id ? _cfg.Workspaces[0].Id : _ws.Id);
     }
 
-    // ================================================================ GitLab actions
-    private static GitLabClient EnsureClient(WsState st, ProjectRef r, string token, bool ignoreSsl)
+    // ================================================================ connect (GitLab / Gerrit)
+    private static T EnsureClient<T>(WsState st, string key, Func<T> create) where T : class, IBranchApi
     {
-        var key = $"{r.BaseUrl}|{token}|{ignoreSsl}";
-        if (st.Client == null || key != st.ClientKey)
-        {
-            st.Client?.Dispose();
-            st.Client = new GitLabClient(r.BaseUrl, token, ignoreSsl);
-            st.ClientKey = key;
-        }
-        return st.Client;
+        if (st.Client is T existing && key == st.ClientKey) return existing;
+        st.Client?.Dispose();
+        var c = create();
+        st.Client = c;
+        st.ClientKey = key;
+        return c;
     }
 
-    /// <summary>Kết nối workspace đang mở: nhiều nguồn (mỗi dòng 1 URL group/repo, cùng host), gộp project, bỏ trùng.</summary>
-    private async Task ConnectAsync(string name, string urlsText, string token, bool ignoreSsl, CancellationToken ct)
+    /// <summary>
+    /// Kết nối workspace đang mở. Mỗi dòng 1 link (cùng host): GitLab = group/repo, Gerrit = prefix/project.
+    /// Gộp project, bỏ trùng, rồi hiện danh sách.
+    /// </summary>
+    private async Task ConnectAsync(string kind, string name, string user, string urlsText, string token, bool ignoreSsl, CancellationToken ct)
     {
         var ws = _ws;
         var st = St;
+        kind = kind is "gerrit" or "gitlab" ? kind : ws.Kind;
         var lines = urlsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => !l.StartsWith('#')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (lines.Count == 0) throw new GitLabException("Nhập ít nhất 1 URL group hoặc repo.");
+        if (lines.Count == 0) throw new GitLabException(kind == "gerrit" ? "Nhập ít nhất 1 link Gerrit." : "Nhập ít nhất 1 URL group hoặc repo.");
 
+        // Đổi loại workspace (GitLab <-> Gerrit) thì token cũ không còn đúng
+        if (ws.Kind != kind) { ws.Token = null; ws.Mode = kind == "gerrit" ? "branch" : "mr"; }
+        if (token.Length == 0) token = AppConfig.GetToken(ws) ?? "";
+
+        var result = kind == "gerrit"
+            ? await ConnectGerritAsync(st, ws, name, lines, user, token, ignoreSsl, ct)
+            : await ConnectGitLabAsync(st, ws, name, lines, token, ignoreSsl, ct);
+
+        var projects = result.Projects.OrderBy(p => p.PathWithNamespace, StringComparer.OrdinalIgnoreCase).ToList();
+        st.Projects = projects.ToDictionary(p => p.Id);
+
+        // Lưu cấu hình workspace
+        ws.Kind = kind;
+        ws.Name = name.Length > 0 ? name : (ws.Name.StartsWith("Workspace") ? result.DefaultName : ws.Name);
+        ws.Sources = lines;
+        ws.IgnoreSsl = ignoreSsl;
+        if (kind == "gerrit") { ws.Username = result.Login; ws.Mode = "branch"; }
+        AppConfig.SetToken(ws, token);
+        TrySave();
+
+        st.Ordered = projects;
+        st.Host = result.Host;
+        st.User = result.User;
+        st.Hidden = result.Hidden;
+        st.IsConnected = true;
+        st.Branches = null;
+        SendWsList();
+        Send(BuildConnected(ws, st));
+        Log($"[{ws.Name}] @{result.User} · {projects.Count} project" + (result.Hidden > 0 ? $" (ẩn {result.Hidden})" : ""), LogKind.Success);
+
+        // Tải luôn branch của các project đang tick để gợi ý (chưa tick gì thì lấy tất cả)
+        var ticked = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await LoadBranchesAsync(projects.Where(p => ticked.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList(), ct);
+    }
+
+    private sealed record ConnectResult(List<GlProject> Projects, int Hidden, string Host, string User, string Login, string DefaultName);
+
+    private async Task<ConnectResult> ConnectGitLabAsync(WsState st, Workspace ws, string name, List<string> lines,
+        string token, bool ignoreSsl, CancellationToken ct)
+    {
         var refs = new List<(string Url, ProjectRef Ref)>();
         foreach (var line in lines)
         {
@@ -299,12 +350,10 @@ public sealed class AppHost
         var otherHost = refs.FirstOrDefault(x => x.Ref.Host != first.Host);
         if (otherHost.Ref != null)
             throw new GitLabException($"Trong 1 workspace mọi URL phải cùng GitLab ({first.Host}). '{otherHost.Url}' khác host → tạo workspace mới (+).");
-
-        if (token.Length == 0) token = AppConfig.GetToken(ws) ?? "";
         if (token.Length == 0) throw new GitLabException("Chưa nhập access token cho workspace này.");
 
-        var gl = EnsureClient(st, first, token, ignoreSsl);
-        Log($"[{(name.Length > 0 ? name : ws.Name)}] Kết nối {first.BaseUrl} …", LogKind.Info);
+        var gl = EnsureClient(st, $"gitlab|{first.BaseUrl}|{token}|{ignoreSsl}", () => new GitLabClient(first.BaseUrl, token, ignoreSsl));
+        Log($"[{(name.Length > 0 ? name : ws.Name)}] Kết nối GitLab {first.BaseUrl} …", LogKind.Info);
         var user = await gl.GetCurrentUserAsync(ct);
 
         var all = new Dictionary<long, GlProject>();
@@ -320,29 +369,62 @@ public sealed class AppHost
             foreach (var p in list) all[p.Id] = p;
             Log($"{r.Path}: {list.Count} project", LogKind.Info);
         }
-        var projects = all.Values.OrderBy(p => p.PathWithNamespace, StringComparer.OrdinalIgnoreCase).ToList();
-        st.Projects = projects.ToDictionary(p => p.Id);
+        return new ConnectResult(all.Values.ToList(), hidden, first.Host, user.Username, user.Username, first.Path.Split('/')[^1]);
+    }
 
-        // Lưu cấu hình workspace
-        ws.Name = name.Length > 0 ? name : (ws.Name.StartsWith("Workspace") ? first.Path.Split('/')[^1] : ws.Name);
-        ws.Sources = lines;
-        ws.IgnoreSsl = ignoreSsl;
-        AppConfig.SetToken(ws, token);
-        TrySave();
+    private async Task<ConnectResult> ConnectGerritAsync(WsState st, Workspace ws, string name, List<string> lines,
+        string user, string password, bool ignoreSsl, CancellationToken ct)
+    {
+        var refs = new List<(string Url, GerritRef Ref)>();
+        foreach (var line in lines)
+        {
+            if (!GerritRef.TryParse(line, out var gr, out var err)) throw new GitLabException($"{line}: {err}");
+            refs.Add((line, gr!));
+        }
+        var first = refs[0].Ref;
+        var otherHost = refs.FirstOrDefault(x => x.Ref.Host != first.Host);
+        if (otherHost.Ref != null)
+            throw new GitLabException($"Trong 1 workspace mọi link phải cùng Gerrit ({first.Host}). '{otherHost.Url}' khác host → tạo workspace mới (+).");
 
-        st.Ordered = projects;
-        st.Host = first.Host;
-        st.User = user.Username;
-        st.Hidden = hidden;
-        st.IsConnected = true;
-        st.Branches = null;
-        SendWsList();
-        Send(BuildConnected(ws, st));
-        Log($"[{ws.Name}] @{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
+        if (user.Length == 0) user = ws.Username ?? refs.Select(r => r.Ref.User).FirstOrDefault(u => u != null) ?? "";
+        if (user.Length == 0) throw new GitLabException("Nhập username Gerrit.");
+        if (password.Length == 0) throw new GitLabException("Nhập HTTP password Gerrit (Gerrit → Settings → HTTP Credentials).");
 
-        // Tải luôn branch của các project đang tick để gợi ý (chưa tick gì thì lấy tất cả)
-        var ticked = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        await LoadBranchesAsync(projects.Where(p => ticked.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList(), ct);
+        var gc = EnsureClient(st, $"gerrit|{first.BaseUrl}|{user}|{password}|{ignoreSsl}", () => new GerritClient(first.BaseUrl, user, password, ignoreSsl));
+        Log($"[{(name.Length > 0 ? name : ws.Name)}] Kết nối Gerrit {first.BaseUrl} …", LogKind.Info);
+        var me = await gc.GetSelfAsync(ct);
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var hidden = 0;
+        foreach (var (_, r) in refs)
+        {
+            var exact = r.IsPrefix ? null : await gc.GetProjectAsync(r.Name, ct);
+            if (exact != null)
+            {
+                names.Add(exact);
+                Log($"{r.Name}: 1 project", LogKind.Info);
+                continue;
+            }
+            var prefix = r.Name.Length == 0 ? "" : r.Name + "/";
+            var list = await gc.ListProjectsAsync(prefix, ct);
+            if (list.Count == 0) throw new GitLabException($"Không thấy project nào '{r.Name}' trên Gerrit (hoặc không có quyền xem).");
+            hidden += list.Count(n => _cfg.IsExcluded(n));
+            list = list.Where(n => !_cfg.IsExcluded(n)).ToList();
+            foreach (var n in list) names.Add(n);
+            Log($"{(prefix.Length > 0 ? prefix + "*" : "(tất cả)")}: {list.Count} project", LogKind.Info);
+        }
+
+        // Gerrit không có id số -> đánh số theo thứ tự tên (chỉ dùng trong phiên)
+        var id = 0L;
+        var projects = names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Select(n => new GlProject
+        {
+            Id = ++id,
+            Name = n.Split('/')[^1],
+            PathWithNamespace = n,
+            WebUrl = gc.ProjectUrl(n),
+        }).ToList();
+        var defName = first.Name.Length > 0 ? first.Name.Split('/')[0] : first.Host.Split('.')[0];
+        return new ConnectResult(projects, hidden, first.Host, me, user, defName);
     }
 
     /// <summary>
@@ -434,7 +516,7 @@ public sealed class AppHost
             await gate.WaitAsync(ct);
             try
             {
-                foreach (var b in await gl.GetBranchesAsync(p.Id, ct))
+                foreach (var b in await gl.GetBranchesAsync(p, ct))
                     counts.AddOrUpdate(b.Name, 1, (_, c) => c + 1);
             }
             catch (GitLabException ex)
@@ -467,6 +549,8 @@ public sealed class AppHost
 
         var dryRun = Bool(m, "dryRun");
         var branchMode = Str(m, "mode") == "branch";
+        var glab = gl as GitLabClient; // MR chỉ có trên GitLab
+        if (!branchMode && glab == null) throw new GitLabException("Workspace Gerrit chỉ hỗ trợ tạo branch (chế độ Branch).");
         string source, target;
         if (branchMode)
         {
@@ -524,8 +608,8 @@ public sealed class AppHost
                 {
                     (true, true) => await BranchWorkflow.CheckAsync(gl, p, source, target, ct),
                     (true, false) => await BranchWorkflow.CreateAsync(gl, p, source, target, PLog, ct),
-                    (false, true) => await MrWorkflow.CheckAsync(gl, p, source, target, ct),
-                    _ => await MrWorkflow.RunAsync(gl, p, opts, PLog, ct),
+                    (false, true) => await MrWorkflow.CheckAsync(glab!, p, source, target, ct),
+                    _ => await MrWorkflow.RunAsync(glab!, p, opts, PLog, ct),
                 };
                 if (dryRun) PLog(res.Message, res.IsGood ? LogKind.Success : LogKind.Info);
             }
