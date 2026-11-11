@@ -1,29 +1,38 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace GitLabMR;
 
+/// <summary>Một workspace = một GitLab (link group/repo + access token riêng), hiện thành 1 tab.</summary>
+public sealed class Workspace
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
+    public string Name { get; set; } = "Workspace";
+    /// <summary>Mỗi phần tử là URL group hoặc repo (cùng 1 GitLab host).</summary>
+    public List<string> Sources { get; set; } = new();
+    /// <summary>Token đã bảo vệ (Platform.ProtectToken): Windows DPAPI, macOS Keychain.</summary>
+    public string? Token { get; set; }
+    public bool IgnoreSsl { get; set; }
+    public List<string> Favorites { get; set; } = new();
+    public List<string> Selected { get; set; } = new();
+    public string? SourceBranch { get; set; }
+    public string? TargetBranch { get; set; }
+
+    [JsonIgnore] public string SecretKey => "ws-" + Id;
+}
+
 /// <summary>
 /// Cấu hình lưu tại %APPDATA%\GitLabMR\config.json (Windows) hoặc ~/.config/GitLabMR/config.json (macOS).
-/// Token: Windows mã hoá DPAPI, macOS cất trong Keychain.
 /// </summary>
 public sealed class AppConfig
 {
-    public List<string> Projects { get; set; } = new();
-    public string? LastProject { get; set; }
-    /// <summary>Danh sách nguồn đang dùng: mỗi phần tử là URL group hoặc repo.</summary>
-    public List<string> Sources { get; set; } = new();
-    /// <summary>Đường dẫn project yêu thích (tab Favorite).</summary>
-    public List<string> Favorites { get; set; } = new();
-    /// <summary>host (lowercase) -> token đã bảo vệ (xem Platform.ProtectToken)</summary>
-    public Dictionary<string, string> Tokens { get; set; } = new();
-    /// <summary>group/project path -> danh sách project đã tick lần trước</summary>
-    public Dictionary<string, List<string>> Selected { get; set; } = new();
+    public List<Workspace> Workspaces { get; set; } = new();
+    public string? ActiveWorkspace { get; set; }
+
     public List<string> BranchHistory { get; set; } = new() { "develop", "pre-uat", "uat", "staging", "master", "main" };
-    public string? LastSourceBranch { get; set; }
-    public string? LastTargetBranch { get; set; }
     public string TitleTemplate { get; set; } = "Merge branch '{source}' into '{target}'";
 
-    /// <summary>Ẩn project có đường dẫn chứa một trong các chuỗi này (không phân biệt hoa thường).</summary>
+    /// <summary>Ẩn project có đường dẫn chứa một trong các chuỗi này khi lấy cả group (không phân biệt hoa thường).</summary>
     public List<string> Exclude { get; set; } = new()
     {
         "/libraries/",
@@ -31,11 +40,21 @@ public sealed class AppConfig
         "/peoplex.http", "/peoplex-security", "/peoplex-workflow", "/peoplex.xreport",
     };
 
-    public bool IgnoreSsl { get; set; }
     public bool Merge { get; set; } = true;
     public bool AutoMerge { get; set; } = true;
     public bool RemoveSource { get; set; }
     public bool Squash { get; set; }
+
+    // ---- Trường của bản cũ (1 GitLab duy nhất) – chỉ đọc để chuyển sang Workspace, không ghi lại nữa
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LastProject { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Sources { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Favorites { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? Tokens { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, List<string>>? Selected { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LastSourceBranch { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LastTargetBranch { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? IgnoreSsl { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Projects { get; set; }
 
     public bool IsExcluded(string path) =>
         Exclude.Any(x => x.Length > 0 && (path + "/").Contains(x, StringComparison.OrdinalIgnoreCase));
@@ -47,21 +66,54 @@ public sealed class AppConfig
 
     public static AppConfig Load()
     {
+        AppConfig cfg;
         try
         {
-            if (File.Exists(FilePath))
-            {
-                var cfg = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig();
-                if (cfg.Sources.Count == 0 && !string.IsNullOrWhiteSpace(cfg.LastProject))
-                    cfg.Sources.Add(cfg.LastProject!); // nâng cấp từ bản 1 URL
-                return cfg;
-            }
+            cfg = File.Exists(FilePath)
+                ? JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig()
+                : new AppConfig();
         }
         catch
         {
-            // file hỏng -> dùng cấu hình mặc định
+            cfg = new AppConfig(); // file hỏng -> mặc định
         }
-        return new AppConfig();
+        cfg.MigrateLegacy();
+        if (cfg.Workspaces.Count == 0) cfg.Workspaces.Add(new Workspace { Name = "Workspace 1" });
+        if (cfg.Workspaces.All(w => w.Id != cfg.ActiveWorkspace)) cfg.ActiveWorkspace = cfg.Workspaces[0].Id;
+        return cfg;
+    }
+
+    /// <summary>Bản cũ chỉ có 1 GitLab -> gom thành workspace đầu tiên (giữ token, favorite, lựa chọn).</summary>
+    private void MigrateLegacy()
+    {
+        if (Workspaces.Count == 0)
+        {
+            var sources = Sources is { Count: > 0 } ? Sources
+                : !string.IsNullOrWhiteSpace(LastProject) ? new List<string> { LastProject! } : new List<string>();
+            if (sources.Count > 0 || Tokens is { Count: > 0 })
+            {
+                var ws = new Workspace
+                {
+                    Sources = sources,
+                    IgnoreSsl = IgnoreSsl ?? false,
+                    Favorites = Favorites ?? new(),
+                    Selected = Selected?.Values.FirstOrDefault() ?? new(),
+                    SourceBranch = LastSourceBranch,
+                    TargetBranch = LastTargetBranch,
+                };
+                ProjectRef.TryParse(sources.FirstOrDefault(), out var r, out _);
+                ws.Name = r?.Path.Split('/')[^1] ?? "Workspace 1";
+                if (r != null && Tokens != null && Tokens.TryGetValue(r.Host, out var stored))
+                {
+                    var plain = Platform.UnprotectToken(r.Host, stored);
+                    if (plain != null) SetToken(ws, plain);
+                }
+                Workspaces.Add(ws);
+                ActiveWorkspace = ws.Id;
+            }
+        }
+        LastProject = null; Sources = null; Favorites = null; Tokens = null; Selected = null;
+        LastSourceBranch = null; LastTargetBranch = null; IgnoreSsl = null; Projects = null;
     }
 
     public void Save()
@@ -70,25 +122,10 @@ public sealed class AppConfig
         File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOpts));
     }
 
-    public string? GetToken(string host)
-    {
-        host = host.ToLowerInvariant();
-        return Tokens.TryGetValue(host, out var stored) ? Platform.UnprotectToken(host, stored) : null;
-    }
+    public static string? GetToken(Workspace ws) =>
+        ws.Token == null ? null : Platform.UnprotectToken(ws.SecretKey, ws.Token);
 
-    public void SetToken(string host, string token)
-    {
-        host = host.ToLowerInvariant();
-        Tokens[host] = Platform.ProtectToken(host, token);
-    }
-
-    public void RememberProject(string url)
-    {
-        Projects.RemoveAll(p => string.Equals(p, url, StringComparison.OrdinalIgnoreCase));
-        Projects.Insert(0, url);
-        if (Projects.Count > 30) Projects.RemoveRange(30, Projects.Count - 30);
-        LastProject = url;
-    }
+    public static void SetToken(Workspace ws, string token) => ws.Token = Platform.ProtectToken(ws.SecretKey, token);
 
     public void RememberBranch(string branch)
     {

@@ -6,7 +6,10 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 
 ## Tính năng
 
-- Nhập **nhiều group / repo** (mỗi dòng 1 link, nút **+** để thêm) + Personal Access Token (scope `api`) → app gộp tất cả project, bỏ trùng.
+- **Nhiều workspace** (tab trên cùng, nút **+**): mỗi workspace là 1 GitLab với link + access token riêng
+  (vd. `peoplex` trên gitlab công ty, `peoplex2024` trên GitLab khác). Chuyển tab là hiện ngay, không tải lại.
+  Bấm tab đang mở (hoặc nút ⚙ bên phải) để sửa tên, link, token hoặc xoá workspace.
+- Trong 1 workspace nhập **nhiều group / repo** (mỗi dòng 1 link, nút **+** để thêm) + Personal Access Token (scope `api`) → app gộp tất cả project, bỏ trùng.
   Group thì lấy hết project bên trong kể cả subgroup; nếu bạn chỉ là member của subgroup/project con (API group trả 404) app vẫn tự tìm project theo quyền Developer+.
 - Tab **Favorite / All**: bấm ☆ để lưu repo hay dùng. Mở app là vào thẳng Favorite, repo yêu thích được tick sẵn và tải branch luôn.
 - Ẩn sẵn các project library/shared (cấu hình `Exclude` trong config).

@@ -11,26 +11,40 @@ namespace GitLabMR;
 public sealed class AppHost
 {
     private const int MaxParallel = 4;
-    private const string SelKey = "*";
     private static readonly JsonSerializerOptions Js = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    /// <summary>Trạng thái runtime của 1 workspace: client + project đã load (để chuyển tab không phải tải lại).</summary>
+    private sealed class WsState
+    {
+        public GitLabClient? Client;
+        public string ClientKey = "";
+        public Dictionary<long, GlProject> Projects = new();
+        public object? Connected;  // payload "connected" gần nhất
+        public object? Branches;   // payload "remoteBranches" gần nhất
+    }
 
     private readonly PhotinoWindow _window;
     private readonly AppConfig _cfg = AppConfig.Load();
+    private readonly Dictionary<string, WsState> _states = new();
     private readonly object _sendLock = new();
-    private GitLabClient? _client;
-    private string _clientKey = "";
-    private ProjectRef? _ref;
-    private Dictionary<long, GlProject> _projects = new();
+    private Workspace _ws;
     private CancellationTokenSource? _cts;
     private volatile bool _ready;
 
-    public AppHost(PhotinoWindow window) => _window = window;
+    public AppHost(PhotinoWindow window)
+    {
+        _window = window;
+        _ws = _cfg.Workspaces.First(w => w.Id == _cfg.ActiveWorkspace);
+    }
+
+    private WsState St => State(_ws);
+    private WsState State(Workspace ws) => _states.TryGetValue(ws.Id, out var s) ? s : _states[ws.Id] = new WsState();
 
     public void Shutdown()
     {
         _cts?.Cancel();
         TrySave();
-        _client?.Dispose();
+        foreach (var s in _states.Values) s.Client?.Dispose();
     }
 
     // ================================================================ messaging
@@ -61,9 +75,19 @@ public sealed class AppHost
                 case "ready":
                     _ready = true;
                     SendInit();
+                    await SwitchAsync(_ws.Id);
+                    break;
+                case "switch":
+                    if (_cts == null) await SwitchAsync(Str(m, "id"));
+                    break;
+                case "addWs":
+                    if (_cts == null) await AddWorkspaceAsync();
+                    break;
+                case "deleteWs":
+                    if (_cts == null) await DeleteWorkspaceAsync(Str(m, "id"));
                     break;
                 case "connect":
-                    await GuardAsync(ct => ConnectAsync((string?)m["urls"] ?? "", Str(m, "token"), Bool(m, "ignoreSsl"), ct));
+                    await GuardAsync(ct => ConnectAsync(Str(m, "name"), (string?)m["urls"] ?? "", Str(m, "token"), Bool(m, "ignoreSsl"), ct));
                     break;
                 case "run":
                     await GuardAsync(ct => RunBatchAsync(m, ct));
@@ -87,13 +111,12 @@ public sealed class AppHost
                     ApplyOptions(m);
                     break;
                 case "selection":
-                    if (_ref != null)
-                        _cfg.Selected[SelKey] = m["paths"]?.AsArray().Select(x => (string?)x ?? "").ToList() ?? new();
+                    _ws.Selected = m["paths"]?.AsArray().Select(x => (string?)x ?? "").ToList() ?? new();
                     break;
                 case "favorite":
                     var favPath = Str(m, "path");
-                    _cfg.Favorites.RemoveAll(x => x.Equals(favPath, StringComparison.OrdinalIgnoreCase));
-                    if (Bool(m, "on") && favPath.Length > 0) _cfg.Favorites.Add(favPath);
+                    _ws.Favorites.RemoveAll(x => x.Equals(favPath, StringComparison.OrdinalIgnoreCase));
+                    if (Bool(m, "on") && favPath.Length > 0) _ws.Favorites.Add(favPath);
                     TrySave();
                     break;
             }
@@ -111,11 +134,6 @@ public sealed class AppHost
     private void SendInit() => Send(new
     {
         type = "init",
-        sources = _cfg.Sources,
-        tokenHosts = _cfg.Tokens.Keys,
-        ignoreSsl = _cfg.IgnoreSsl,
-        source = _cfg.LastSourceBranch,
-        target = _cfg.LastTargetBranch,
         title = _cfg.TitleTemplate,
         merge = _cfg.Merge,
         autoMerge = _cfg.AutoMerge,
@@ -124,16 +142,22 @@ public sealed class AppHost
         branches = _cfg.BranchHistory,
     });
 
+    private void SendWsList() => Send(new
+    {
+        type = "wsList",
+        active = _ws.Id,
+        items = _cfg.Workspaces.Select(w => new { id = w.Id, name = w.Name, connected = State(w).Connected != null }),
+    });
+
     private void ApplyOptions(JsonNode m)
     {
-        _cfg.LastSourceBranch = Str(m, "source");
-        _cfg.LastTargetBranch = Str(m, "target");
+        _ws.SourceBranch = Str(m, "source");
+        _ws.TargetBranch = Str(m, "target");
         if (Str(m, "title").Length > 0) _cfg.TitleTemplate = Str(m, "title");
         _cfg.Merge = Bool(m, "merge");
         _cfg.AutoMerge = Bool(m, "autoMerge");
         _cfg.RemoveSource = Bool(m, "removeSource");
         _cfg.Squash = Bool(m, "squash");
-        _cfg.IgnoreSsl = Bool(m, "ignoreSsl");
     }
 
     private void TrySave()
@@ -165,22 +189,75 @@ public sealed class AppHost
         }
     }
 
-    // ================================================================ GitLab actions
-    private GitLabClient EnsureClient(ProjectRef r, string token, bool ignoreSsl)
+    // ================================================================ workspaces
+    private async Task SwitchAsync(string id)
     {
-        var key = $"{r.BaseUrl}|{token}|{ignoreSsl}";
-        if (_client == null || key != _clientKey)
+        _ws = _cfg.Workspaces.FirstOrDefault(w => w.Id == id) ?? _cfg.Workspaces[0];
+        _cfg.ActiveWorkspace = _ws.Id;
+        TrySave();
+        SendWsList();
+        Send(new
         {
-            _client?.Dispose();
-            _client = new GitLabClient(r.BaseUrl, token, ignoreSsl);
-            _clientKey = key;
+            type = "wsInfo",
+            id = _ws.Id,
+            name = _ws.Name,
+            sources = _ws.Sources,
+            ignoreSsl = _ws.IgnoreSsl,
+            hasToken = _ws.Token != null,
+            source = _ws.SourceBranch,
+            target = _ws.TargetBranch,
+        });
+
+        var st = St;
+        if (st.Connected != null)
+        {
+            Send(st.Connected);                    // đã load rồi -> hiện ngay, không gọi API
+            if (st.Branches != null) Send(st.Branches);
         }
-        return _client;
+        else if (_ws.Token != null && _ws.Sources.Count > 0)
+        {
+            await GuardAsync(ct => ConnectAsync(_ws.Name, string.Join('\n', _ws.Sources), "", _ws.IgnoreSsl, ct));
+        }
     }
 
-    /// <summary>Kết nối nhiều nguồn (mỗi dòng 1 URL group hoặc repo, cùng 1 GitLab host), gộp project và bỏ trùng.</summary>
-    private async Task ConnectAsync(string urlsText, string token, bool ignoreSsl, CancellationToken ct)
+    private async Task AddWorkspaceAsync()
     {
+        var n = 1;
+        while (_cfg.Workspaces.Any(w => w.Name == $"Workspace {n}")) n++;
+        var ws = new Workspace { Name = $"Workspace {n}", SourceBranch = _ws.SourceBranch, TargetBranch = _ws.TargetBranch };
+        _cfg.Workspaces.Add(ws);
+        await SwitchAsync(ws.Id);
+    }
+
+    private async Task DeleteWorkspaceAsync(string id)
+    {
+        var ws = _cfg.Workspaces.FirstOrDefault(w => w.Id == id);
+        if (ws == null) return;
+        _cfg.Workspaces.Remove(ws);
+        if (_states.Remove(ws.Id, out var st)) st.Client?.Dispose();
+        if (_cfg.Workspaces.Count == 0) _cfg.Workspaces.Add(new Workspace { Name = "Workspace 1" });
+        Log($"Đã xoá workspace '{ws.Name}'", LogKind.Warn);
+        await SwitchAsync(_ws.Id == id ? _cfg.Workspaces[0].Id : _ws.Id);
+    }
+
+    // ================================================================ GitLab actions
+    private static GitLabClient EnsureClient(WsState st, ProjectRef r, string token, bool ignoreSsl)
+    {
+        var key = $"{r.BaseUrl}|{token}|{ignoreSsl}";
+        if (st.Client == null || key != st.ClientKey)
+        {
+            st.Client?.Dispose();
+            st.Client = new GitLabClient(r.BaseUrl, token, ignoreSsl);
+            st.ClientKey = key;
+        }
+        return st.Client;
+    }
+
+    /// <summary>Kết nối workspace đang mở: nhiều nguồn (mỗi dòng 1 URL group/repo, cùng host), gộp project, bỏ trùng.</summary>
+    private async Task ConnectAsync(string name, string urlsText, string token, bool ignoreSsl, CancellationToken ct)
+    {
+        var ws = _ws;
+        var st = St;
         var lines = urlsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => !l.StartsWith('#')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (lines.Count == 0) throw new GitLabException("Nhập ít nhất 1 URL group hoặc repo.");
@@ -194,18 +271,18 @@ public sealed class AppHost
         var first = refs[0].Ref;
         var otherHost = refs.FirstOrDefault(x => x.Ref.Host != first.Host);
         if (otherHost.Ref != null)
-            throw new GitLabException($"Mọi URL phải cùng 1 GitLab ({first.Host}); '{otherHost.Url}' khác host.");
+            throw new GitLabException($"Trong 1 workspace mọi URL phải cùng GitLab ({first.Host}). '{otherHost.Url}' khác host → tạo workspace mới (+).");
 
-        if (token.Length == 0) token = _cfg.GetToken(first.Host) ?? "";
-        if (token.Length == 0) throw new GitLabException("Chưa nhập access token.");
+        if (token.Length == 0) token = AppConfig.GetToken(ws) ?? "";
+        if (token.Length == 0) throw new GitLabException("Chưa nhập access token cho workspace này.");
 
-        var gl = EnsureClient(first, token, ignoreSsl);
-        Log($"Kết nối {first.BaseUrl} …", LogKind.Info);
+        var gl = EnsureClient(st, first, token, ignoreSsl);
+        Log($"[{(name.Length > 0 ? name : ws.Name)}] Kết nối {first.BaseUrl} …", LogKind.Info);
         var user = await gl.GetCurrentUserAsync(ct);
 
         var all = new Dictionary<long, GlProject>();
         var hidden = 0;
-        foreach (var (url, r) in refs)
+        foreach (var (_, r) in refs)
         {
             var (list, isSingle) = await ResolveSourceAsync(gl, r, ct);
             if (!isSingle) // chỉ ẩn library/shared khi lấy cả group; repo add tay thì giữ
@@ -217,33 +294,29 @@ public sealed class AppHost
             Log($"{r.Path}: {list.Count} project", LogKind.Info);
         }
         var projects = all.Values.OrderBy(p => p.PathWithNamespace, StringComparer.OrdinalIgnoreCase).ToList();
+        st.Projects = projects.ToDictionary(p => p.Id);
 
-        _ref = first;
-        _projects = projects.ToDictionary(p => p.Id);
-
-        _cfg.SetToken(first.Host, token);
-        _cfg.Sources = lines;
-        _cfg.LastProject = lines[0];
-        foreach (var l in lines.AsEnumerable().Reverse()) _cfg.RememberProject(l);
-        _cfg.LastProject = lines[0];
-        _cfg.IgnoreSsl = ignoreSsl;
+        // Lưu cấu hình workspace
+        ws.Name = name.Length > 0 ? name : (ws.Name.StartsWith("Workspace") ? first.Path.Split('/')[^1] : ws.Name);
+        ws.Sources = lines;
+        ws.IgnoreSsl = ignoreSsl;
+        AppConfig.SetToken(ws, token);
         TrySave();
 
-        var favs = _cfg.Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var saved = _cfg.Selected.TryGetValue(SelKey, out var sel) ? sel.ToHashSet(StringComparer.OrdinalIgnoreCase) : new();
+        var favs = ws.Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var saved = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var hasFav = projects.Any(p => favs.Contains(p.PathWithNamespace));
         // Có favorite -> tự tick sẵn favorite; chưa có -> dùng lựa chọn lần trước
         bool IsSelected(GlProject p) => projects.Count == 1 || (hasFav ? favs.Contains(p.PathWithNamespace) : saved.Contains(p.PathWithNamespace));
 
         var prefix = CommonNamespace(projects.Select(p => p.PathWithNamespace));
-        Send(new
+        st.Connected = new
         {
             type = "connected",
-            scope = refs.Count == 1 ? first.Path : $"{refs.Count} nguồn",
+            wsId = ws.Id,
+            host = first.Host,
             user = user.Username,
             hidden,
-            sources = lines,
-            tokenHosts = _cfg.Tokens.Keys,
             projects = projects.Select(p =>
             {
                 var rel = p.PathWithNamespace[prefix.Length..];
@@ -259,9 +332,12 @@ public sealed class AppHost
                     fav = favs.Contains(p.PathWithNamespace),
                     selected = IsSelected(p),
                 };
-            }),
-        });
-        Log($"@{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
+            }).ToList(),
+        };
+        st.Branches = null;
+        SendWsList();
+        Send(st.Connected);
+        Log($"[{ws.Name}] @{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
 
         // Tải luôn branch của các project đang tick (favorite) để gợi ý
         await LoadBranchesAsync(projects.Where(IsSelected).Select(p => p.Id).ToList(), ct);
@@ -307,10 +383,11 @@ public sealed class AppHost
     /// <summary>Gom tên branch của các project (chưa chọn project nào thì lấy tất cả), kèm số project có branch đó.</summary>
     private async Task LoadBranchesAsync(List<long> ids, CancellationToken ct)
     {
-        if (_client == null || _projects.Count == 0) return;
-        var gl = _client;
-        var list = ids.Where(_projects.ContainsKey).Select(id => _projects[id]).ToList();
-        if (list.Count == 0) list = _projects.Values.ToList();
+        var st = St;
+        if (st.Client == null || st.Projects.Count == 0) return;
+        var gl = st.Client;
+        var list = ids.Where(st.Projects.ContainsKey).Select(id => st.Projects[id]).ToList();
+        if (list.Count == 0) list = st.Projects.Values.ToList();
 
         Send(new { type = "branchesLoading" });
         var counts = new ConcurrentDictionary<string, int>();
@@ -333,20 +410,22 @@ public sealed class AppHost
             }
         }));
 
-        Send(new
+        st.Branches = new
         {
             type = "remoteBranches",
             total = list.Count,
             items = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(kv => new { name = kv.Key, count = kv.Value }),
-        });
+                .Select(kv => new { name = kv.Key, count = kv.Value }).ToList(),
+        };
+        Send(st.Branches);
         Log($"Đã tải {counts.Count} branch từ {list.Count} project", LogKind.Info);
     }
 
     private async Task RunBatchAsync(JsonNode m, CancellationToken ct)
     {
-        if (_client == null || _ref == null) throw new GitLabException("Kết nối trước đã.");
-        var gl = _client;
+        var st = St;
+        if (st.Client == null || st.Connected == null) throw new GitLabException("Kết nối trước đã.");
+        var gl = st.Client;
         ApplyOptions(m);
 
         var dryRun = Bool(m, "dryRun");
@@ -355,7 +434,7 @@ public sealed class AppHost
         if (source.Length == 0 || target.Length == 0) throw new GitLabException("Nhập branch nguồn và branch đích.");
         if (source == target) throw new GitLabException("Branch nguồn và đích phải khác nhau.");
 
-        var targets = Ids(m).Where(_projects.ContainsKey).Select(id => _projects[id]).ToList();
+        var targets = Ids(m).Where(st.Projects.ContainsKey).Select(id => st.Projects[id]).ToList();
         if (targets.Count == 0) throw new GitLabException("Chưa chọn project nào.");
 
         var opts = new MrOptions(source, target,
@@ -364,12 +443,11 @@ public sealed class AppHost
 
         _cfg.RememberBranch(target);
         _cfg.RememberBranch(source);
-        _cfg.Selected[SelKey] = targets.Select(p => p.PathWithNamespace).ToList();
         TrySave();
         Send(new { type = "branches", branches = _cfg.BranchHistory });
 
         var mode = dryRun ? "Kiểm tra" : opts.Merge ? "Tạo MR + merge" : "Tạo MR";
-        Log($"── {mode}: {source} → {target} · {targets.Count} project", LogKind.Info);
+        Log($"── [{_ws.Name}] {mode}: {source} → {target} · {targets.Count} project", LogKind.Info);
         foreach (var p in targets) Send(new { type = "row", id = p.Id, state = "wait" });
 
         using var gate = new SemaphoreSlim(MaxParallel);

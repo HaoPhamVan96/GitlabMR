@@ -69,8 +69,23 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .brand{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px}
 .brand .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center}
 .brand .logo svg{width:13px;height:13px}
-.conn-chip{margin-left:auto;display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:14px;
-  border:1px solid var(--line);background:var(--panel);color:var(--muted);max-width:60%;font-size:12px}
+.wstabs{display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px 0}
+.wstabs::-webkit-scrollbar{display:none}
+.wstab{height:28px;padding:0 11px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;
+  white-space:nowrap;display:flex;align-items:center;gap:6px;max-width:170px;flex:none;transition:background .12s,color .12s}
+.wstab .t{overflow:hidden;text-overflow:ellipsis}
+.wstab:hover:not(:disabled){background:var(--line2);color:var(--text)}
+.wstab.on{background:var(--panel);border-color:var(--line);color:var(--text);box-shadow:var(--shadow)}
+.wstab .dot{width:6px;height:6px}
+.wstab:disabled{cursor:default}
+.top .icon{width:28px;height:28px}
+.conn-chip{display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:14px;flex:none;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted);max-width:42%;font-size:12px}
+.conn-chip .gear{width:13px;height:13px;color:var(--faint)}
+.conn .ws-head{grid-column:1/-1;display:flex;align-items:center;gap:8px}
+.conn .ws-head .lbl{font-size:12px;font-weight:700}
+.conn .ws-head .in{flex:1;max-width:320px;font-weight:600}
+.conn .ws-head .btn{margin-left:auto}
 .conn-chip:hover{border-color:var(--faint)}
 .conn-chip b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
@@ -179,10 +194,17 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 
 <header class="top">
   <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 7.2C12 9 13 12 15.5 12"/></svg></span>GitLab MR</div>
-  <button id="chip" class="conn-chip" title="Cấu hình kết nối"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span></button>
+  <nav id="wsTabs" class="wstabs"></nav>
+  <button id="wsAdd" class="icon" title="Thêm workspace (GitLab / token khác)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button id="chip" class="conn-chip" title="Cài đặt workspace này"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span><svg viewBox="0 0 24 24" class="gear"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
 
 <section id="conn" class="card conn">
+  <div class="ws-head">
+    <span class="lbl">Workspace</span>
+    <input id="wsName" class="in" placeholder="Tên workspace (vd: peoplex, peoplex2024)" spellcheck="false">
+    <button id="wsDel" class="btn sm danger" title="Xoá workspace này">Xoá</button>
+  </div>
   <div class="src-head"><b>Group / repo</b><span class="hint">Mỗi dòng 1 link — group thì lấy hết project bên trong, repo thì thêm đúng repo đó. Ctrl+Enter để kết nối.</span></div>
   <textarea id="url" class="in src" spellcheck="false" placeholder="https://gitlab.company.com/my-group
 https://gitlab.company.com/other-group/some-repo"></textarea>
@@ -270,7 +292,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const COPY = '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
 const EXT = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
-const S = { projects: [], sel: new Set(), st: {}, tokenHosts: [], busy: false, connected: false, errs: 0, remote: [], remoteTotal: 0, history: [], hidden: 0, tab: 'all' };
+const S = { projects: [], sel: new Set(), st: {}, wsList: [], wsActive: null, wsHasToken: false, stCache: {}, fresh: false, busy: false, connected: false, errs: 0, remote: [], remoteTotal: 0, history: [], hidden: 0, tab: 'all' };
 const STAR = '<svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
 const inTab = p => S.tab === 'all' || p.fav;
 const tabProjects = () => S.projects.filter(inTab);
@@ -286,7 +308,12 @@ function hostOf(u) {
   try { return new URL(u).host.toLowerCase(); } catch { return ''; }
 }
 function tokenHint() {
-  $('#token').placeholder = S.tokenHosts.includes(hostOf($('#url').value)) ? 'Đã lưu token — để trống để dùng lại' : 'Access token (scope api)';
+  $('#token').placeholder = S.wsHasToken ? 'Đã lưu token — để trống để dùng lại' : 'Access token của GitLab này (scope api)';
+}
+function renderWsTabs() {
+  $('#wsTabs').innerHTML = S.wsList.map(w =>
+    `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(w.name)}${w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : ''}" ${S.busy ? 'disabled' : ''}>` +
+    `<span class="dot${w.connected ? ' ok' : ''}"></span><span class="t">${esc(w.name)}</span></button>`).join('');
 }
 function fillList(id, items) { $(id).innerHTML = (items || []).map(x => `<option value="${esc(x)}">`).join(''); }
 function fillBranches() {
@@ -397,7 +424,8 @@ function connect() {
   const urls = $('#url').value.trim();
   if (!urls) { $('#conn').hidden = false; return toast('Nhập ít nhất 1 link group hoặc repo', true); }
   chip('Đang kết nối…', 'wait');
-  send('connect', { urls, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
+  S.fresh = true;
+  send('connect', { name: $('#wsName').value.trim(), urls, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
 }
 function run(dryRun) {
   if (S.busy) return;
@@ -421,7 +449,8 @@ function run(dryRun) {
 }
 function setBusy(b) {
   S.busy = b;
-  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd']) $(id).disabled = b;
+  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
+  renderWsTabs();
   $('#btnStop').hidden = !b;
   document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
   counts();
@@ -435,25 +464,38 @@ function showSummary(counts, dryRun) {
 /* ---------- messages from C# */
 const H = {
   init(d) {
-    S.tokenHosts = d.tokenHosts || [];
     S.history = d.branches || [];
     fillBranches();
-    const sources = d.sources || [];
-    $('#url').value = sources.join('\n'); $('#ssl').checked = !!d.ignoreSsl;
-    $('#source').value = d.source || ''; $('#target').value = d.target || '';
     $('#title').value = d.title || ''; $('#merge').checked = !!d.merge; $('#autoMerge').checked = !!d.autoMerge;
     $('#removeSource').checked = !!d.removeSource; $('#squash').checked = !!d.squash;
-    tokenHint(); runLabel();
-    if (sources.length && S.tokenHosts.includes(hostOf(sources[0]))) connect(); else $('#url').focus();
+    runLabel();
+  },
+  wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); },
+  wsInfo(d) {
+    // Chuyển sang workspace khác: nạp cấu hình của nó, xoá danh sách đang hiện
+    S.wsActive = d.id; S.wsHasToken = !!d.hasToken;
+    S.connected = false; S.projects = []; S.sel = new Set(); S.st = {}; S.remote = []; S.remoteTotal = 0; S.hidden = 0;
+    $('#wsName').value = d.name || ''; $('#url').value = (d.sources || []).join('\n'); $('#ssl').checked = !!d.ignoreSsl;
+    $('#token').value = ''; tokenHint();
+    $('#source').value = d.source || ''; $('#target').value = d.target || '';
+    $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
+    const ready = S.wsHasToken && (d.sources || []).length > 0;
+    chip(ready ? 'Đang tải…' : 'Chưa cấu hình', ready ? 'wait' : '');
+    $('#conn').hidden = ready;
+    if (!ready) setTimeout(() => ($('#url').value ? $('#token') : $('#url')).focus(), 50);
+    fillBranches(); renderWsTabs(); render(); updateMr();
   },
   connected(d) {
-    S.connected = true; S.projects = d.projects; S.st = {}; S.hidden = d.hidden || 0;
+    if (d.wsId !== S.wsActive) return;
+    S.connected = true; S.wsHasToken = true; S.projects = d.projects; S.hidden = d.hidden || 0;
+    S.st = S.fresh || !S.stCache[d.wsId] ? (S.stCache[d.wsId] = {}) : S.stCache[d.wsId];
+    S.fresh = false;
     S.sel = new Set(d.projects.filter(p => p.selected).map(p => p.id));
-    S.tokenHosts = d.tokenHosts || S.tokenHosts;
-    $('#url').value = (d.sources || []).join('\n'); $('#token').value = ''; tokenHint();
+    $('#token').value = ''; tokenHint();
     S.tab = d.projects.some(p => p.fav) ? 'fav' : 'all';
-    chip(`${d.scope} · ${d.projects.length} project`, 'ok', '@' + d.user);
-    $('#conn').hidden = true; $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
+    chip(`${d.projects.length} project`, 'ok', '@' + d.user);
+    $('#chip').title = `${d.host} — bấm để cài đặt workspace`;
+    $('#conn').hidden = true; $('#filter').value = '';
     render(); updateMr();
   },
   busy(d) { setBusy(d.value); if (!d.value) $('#btnBranches').classList.remove('spinning'); },
@@ -461,8 +503,9 @@ const H = {
   branchesLoading() { $('#btnBranches').classList.add('spinning'); },
   remoteBranches(d) {
     S.remote = d.items || []; S.remoteTotal = d.total || 0; fillBranches();
-    $('#btnBranches').classList.remove('spinning');
-    toast(`Đã tải ${S.remote.length} branch từ ${S.remoteTotal} project`);
+    const b = $('#btnBranches');
+    if (b.classList.contains('spinning')) toast(`Đã tải ${S.remote.length} branch từ ${S.remoteTotal} project`);
+    b.classList.remove('spinning');
   },
   row(d) {
     S.st[d.id] = d.state === 'wait' ? { cls: 'mute', text: 'Chờ…' }
@@ -488,6 +531,19 @@ window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } c
 /* ---------- UI events */
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
+$('#wsTabs').addEventListener('click', e => {
+  const b = e.target.closest('.wstab'); if (!b || S.busy) return;
+  if (b.dataset.ws === S.wsActive) { $('#conn').hidden = !$('#conn').hidden; return; }
+  send('switch', { id: b.dataset.ws });
+});
+$('#wsAdd').onclick = () => { if (!S.busy) send('addWs'); };
+let delTimer;
+$('#wsDel').onclick = () => {
+  const b = $('#wsDel');
+  if (b.dataset.armed) { clearTimeout(delTimer); delete b.dataset.armed; b.textContent = 'Xoá'; send('deleteWs', { id: S.wsActive }); return; }
+  b.dataset.armed = '1'; b.textContent = 'Bấm lần nữa để xoá';
+  delTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = 'Xoá'; }, 3000);
+};
 $('#token').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
 $('#url').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); connect(); } });
 $('#btnAdd').onclick = () => {
