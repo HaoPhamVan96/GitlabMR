@@ -115,6 +115,10 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 
 /* ---------- branch bar */
 .bar{margin:10px 14px 0;padding:8px 10px;display:flex;align-items:center;gap:8px;position:relative}
+.bar .seg button{padding:0 9px}
+.bar .seg button.on{color:var(--accent)}
+.arrow{color:var(--faint);display:grid;place-items:center;width:20px;flex:none}
+.bar.branch .br .in{border-style:dashed}
 .br{display:flex;align-items:center;flex:1;min-width:0;position:relative}
 .br .tag{position:absolute;left:9px;font-size:11px;font-weight:600;color:var(--faint);pointer-events:none;text-transform:uppercase;letter-spacing:.03em}
 .br .in{width:100%;padding-left:40px;font-weight:600;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
@@ -215,13 +219,18 @@ https://gitlab.company.com/other-group/some-repo"></textarea>
 </section>
 
 <section class="card bar">
-  <div class="br"><span class="tag">Từ</span><input id="source" class="in" list="brList" placeholder="pre-uat" spellcheck="false"></div>
+  <div id="modeSeg" class="seg" title="Chế độ: tạo/merge MR hoặc tạo branch hàng loạt">
+    <button data-mode="mr">MR</button>
+    <button data-mode="branch">Branch</button>
+  </div>
+  <div class="br"><span id="tagA" class="tag">Từ</span><input id="source" class="in" list="brList" placeholder="pre-uat" spellcheck="false"></div>
   <button id="swap" class="icon" title="Đảo nguồn / đích"><svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg></button>
-  <div class="br"><span class="tag">Vào</span><input id="target" class="in" list="brList" placeholder="uat" spellcheck="false"></div>
+  <span id="arrow" class="arrow" hidden><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+  <div class="br"><span id="tagB" class="tag">Vào</span><input id="target" class="in" list="brList" placeholder="uat" spellcheck="false"></div>
   <datalist id="brList"></datalist>
   <button id="btnBranches" class="icon" title="Tải lại branch từ GitLab (của các project đang chọn)"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
-  <span class="sep"></span>
-  <label class="switch" title="Tạo xong merge luôn"><input id="merge" type="checkbox"><span class="tr"></span>Merge</label>
+  <span id="sepMr" class="sep"></span>
+  <label id="mergeSw" class="switch" title="Tạo xong merge luôn"><input id="merge" type="checkbox"><span class="tr"></span>Merge</label>
   <button id="btnOpts" class="icon" title="Tuỳ chọn khác"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
 
   <div id="pop" class="card pop" hidden>
@@ -254,7 +263,7 @@ https://gitlab.company.com/other-group/some-repo"></textarea>
 <footer class="foot">
   <button id="btnLog" class="icon" title="Nhật ký"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg></button>
   <span id="logBadge" class="badge" hidden></span>
-  <button id="btnMr" class="btn sm" title="Xem / copy link merge request" hidden><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>MR <span id="nMr" class="cnt"></span></button>
+  <button id="btnMr" class="btn sm" title="Xem / copy link kết quả (MR, branch)" hidden><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Link <span id="nMr" class="cnt"></span></button>
   <div id="sum" class="sum"></div>
   <button id="btnStop" class="btn danger" hidden>Dừng</button>
   <button id="btnCheck" class="btn">Kiểm tra</button>
@@ -267,7 +276,7 @@ https://gitlab.company.com/other-group/some-repo"></textarea>
 </div>
 
 <div id="mrp" class="card logp" hidden>
-  <div class="hd">Merge request <span id="mrHint" class="hint2"></span>
+  <div class="hd">Link kết quả <span id="mrHint" class="hint2"></span>
     <button id="mrCopy" class="btn sm primary" style="margin-left:auto"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy tất cả</button>
     <button id="mrClose" class="icon" style="margin-left:4px" title="Đóng"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <textarea id="mrText" class="mrtext" readonly spellcheck="false"></textarea>
@@ -299,8 +308,36 @@ const inTab = p => S.tab === 'all' || p.fav;
 const tabProjects = () => S.projects.filter(inTab);
 const chosen = () => S.projects.filter(p => inTab(p) && S.sel.has(p.id));
 
-const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', Failed: 'err' };
-const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', Failed: 'Lỗi' };
+const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', BranchCreated: 'done', BranchExists: 'mute', Failed: 'err' };
+const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi' };
+// 2 chế độ dùng chung 2 ô nhập: MR (Từ → Vào) và Branch (Từ branch gốc → Tên branch mới)
+const MODES = {
+  mr: { tagA: 'Từ', tagB: 'Vào', phA: 'pre-uat', phB: 'uat' },
+  branch: { tagA: 'Từ', tagB: 'Tên', phA: 'prod', phB: 'feature/jwt' },
+};
+S.mode = 'mr';
+S.vals = { mr: { a: '', b: '' }, branch: { a: '', b: '' } };
+function syncVals() { S.vals[S.mode] = { a: $('#source').value.trim(), b: $('#target').value.trim() }; }
+function applyMode() {
+  const M = MODES[S.mode], br = S.mode === 'branch';
+  $('#tagA').textContent = M.tagA; $('#tagB').textContent = M.tagB;
+  $('#source').placeholder = M.phA; $('#target').placeholder = M.phB;
+  $('#source').value = S.vals[S.mode].a; $('#target').value = S.vals[S.mode].b;
+  $('#source').title = br ? 'Branch gốc để tách ra (vd: prod)' : 'Branch nguồn của MR';
+  $('#target').title = br ? 'Tên branch mới sẽ tạo trên mọi repo đã tick' : 'Branch đích của MR';
+  for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts']) $(id).hidden = br;
+  $('#arrow').hidden = !br;
+  document.querySelector('.bar').classList.toggle('branch', br);
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
+  if (br) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
+  runLabel();
+}
+function setMode(m) {
+  if (m === S.mode) return;
+  syncVals(); S.mode = m; applyMode();
+  $('#sum').innerHTML = ''; $('#pickReady').hidden = true;
+  saveOpts();
+}
 
 /* ---------- helpers */
 function hostOf(u) {
@@ -337,8 +374,12 @@ function chip(text, dot, user = '') {
   $('#chipText').textContent = text; $('#dot').className = 'dot ' + dot; $('#chipUser').textContent = user;
 }
 function opts() {
+  syncVals();
   return {
-    source: $('#source').value.trim(), target: $('#target').value.trim(), title: $('#title').value.trim(), description: $('#desc').value,
+    mode: S.mode,
+    source: S.vals.mr.a, target: S.vals.mr.b,          // MR: nguồn → đích
+    base: S.vals.branch.a, name: S.vals.branch.b,       // Branch: gốc → tên mới
+    title: $('#title').value.trim(), description: $('#desc').value,
     merge: $('#merge').checked, autoMerge: $('#autoMerge').checked, removeSource: $('#removeSource').checked, squash: $('#squash').checked,
     ignoreSsl: $('#ssl').checked,
   };
@@ -352,7 +393,8 @@ function saveSel() {
 }
 function runLabel() {
   const n = chosen().length;
-  $('#btnRun').textContent = ($('#merge').checked ? 'Tạo & merge' : 'Tạo MR') + (n ? ` (${n})` : '');
+  const label = S.mode === 'branch' ? 'Tạo branch' : $('#merge').checked ? 'Tạo & merge' : 'Tạo MR';
+  $('#btnRun').textContent = label + (n ? ` (${n})` : '');
   $('#autoMerge').disabled = !$('#merge').checked;
 }
 
@@ -436,33 +478,37 @@ function connect() {
 function run(dryRun) {
   if (S.busy) return;
   if (!S.connected) return toast('Kết nối trước đã', true);
-  const o = opts();
-  if (!o.source || !o.target) return toast('Nhập branch nguồn và đích', true);
-  if (o.source === o.target) return toast('Branch nguồn và đích phải khác nhau', true);
+  const o = opts(), br = o.mode === 'branch';
+  const a = br ? o.base : o.source, b = br ? o.name : o.target;
+  if (!a || !b) return toast(br ? 'Nhập branch gốc (Từ) và tên branch mới (Tên)' : 'Nhập branch nguồn và đích', true);
+  if (a === b) return toast(br ? 'Branch mới phải khác branch gốc' : 'Branch nguồn và đích phải khác nhau', true);
+  if (br && /\s/.test(b)) return toast('Tên branch không được có khoảng trắng', true);
   const list = chosen();
   if (!list.length) return toast('Chưa chọn project nào', true);
   const payload = { ...o, dryRun, ids: list.map(p => p.id) };
-  S.pair = `${o.source} → ${o.target}`;
+  S.pair = br ? `branch ${b} (từ ${a})` : `${a} → ${b}`;
   $('#pop').hidden = true; $('#btnOpts').classList.remove('on');
   if (dryRun) return send('run', payload);
-  $('#mTitle').textContent = `${o.merge ? 'Tạo MR và merge' : 'Tạo MR'} cho ${list.length} project?`;
-  $('#mPair').textContent = `${o.source}  →  ${o.target}`;
+  $('#mTitle').textContent = br ? `Tạo branch cho ${list.length} project?`
+    : `${o.merge ? 'Tạo MR và merge' : 'Tạo MR'} cho ${list.length} project?`;
+  $('#mPair').textContent = br ? `${b}   (tách từ ${a})` : `${a}  →  ${b}`;
   $('#mList').innerHTML = list.map(p => `<li>${esc(p.ns + p.name)}</li>`).join('');
-  $('#mWarn').hidden = !(o.merge && o.removeSource);
-  $('#mYes').textContent = o.merge ? 'Tạo & merge' : 'Tạo MR';
+  $('#mWarn').hidden = br || !(o.merge && o.removeSource);
+  $('#mYes').textContent = br ? 'Tạo branch' : o.merge ? 'Tạo & merge' : 'Tạo MR';
   $('#modal').hidden = false; $('#mYes').focus();
   $('#mYes').onclick = () => { $('#modal').hidden = true; send('run', payload); };
 }
 function setBusy(b) {
   S.busy = b;
   for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
+  document.querySelectorAll('#modeSeg button').forEach(x => x.disabled = b);
   renderWsTabs();
   $('#btnStop').hidden = !b;
   document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
   counts();
 }
 function showSummary(counts, dryRun) {
-  const order = ['Merged', 'Created', 'AutoMerge', 'Ready', 'AlreadyOpen', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
+  const order = ['Merged', 'Created', 'AutoMerge', 'BranchCreated', 'Ready', 'AlreadyOpen', 'BranchExists', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
   $('#sum').innerHTML = order.filter(k => counts[k]).map(k => `<span class="st st-${CLS[k]}">${counts[k]} ${LABEL[k]}</span>`).join('');
   $('#pickReady').hidden = !(dryRun && counts.Ready);
 }
@@ -483,7 +529,9 @@ const H = {
     S.connected = false; S.projects = []; S.sel = new Set(); S.st = {}; S.remote = []; S.remoteTotal = 0; S.hidden = 0;
     $('#wsName').value = d.name || ''; $('#url').value = (d.sources || []).join('\n'); $('#ssl').checked = !!d.ignoreSsl;
     $('#token').value = ''; tokenHint();
-    $('#source').value = d.source || ''; $('#target').value = d.target || '';
+    S.vals = { mr: { a: d.source || '', b: d.target || '' }, branch: { a: d.branchBase || '', b: d.branchName || '' } };
+    S.mode = d.mode === 'branch' ? 'branch' : 'mr';
+    applyMode();
     $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
     const ready = S.wsHasToken && (d.sources || []).length > 0;
     chip(ready ? 'Đang tải…' : 'Chưa cấu hình', ready ? 'wait' : '');
@@ -537,6 +585,7 @@ window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } c
 /* ---------- UI events */
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
+document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });
 $('#wsTabs').addEventListener('click', e => {
   const b = e.target.closest('.wstab'); if (!b || S.busy) return;
   if (b.dataset.ws === S.wsActive) { $('#conn').hidden = !$('#conn').hidden; return; }

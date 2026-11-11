@@ -4,11 +4,53 @@ namespace GitLabMR;
 
 public enum LogKind { Info, Success, Warn, Error }
 
-public enum MrOutcome { Ready, NoChanges, MissingBranch, AlreadyOpen, Created, Merged, AutoMerge, NotMerged, Failed }
+public enum MrOutcome { Ready, NoChanges, MissingBranch, AlreadyOpen, Created, Merged, AutoMerge, NotMerged, BranchCreated, BranchExists, Failed }
 
 public sealed record MrResult(MrOutcome Outcome, string Message, string? Url = null)
 {
-    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge;
+    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge or MrOutcome.BranchCreated;
+}
+
+/// <summary>Tạo branch hàng loạt: branch mới từ branch gốc, bỏ qua nếu đã có.</summary>
+public static class BranchWorkflow
+{
+    private static string TreeUrl(GlProject p, string branch) => $"{p.WebUrl.TrimEnd('/')}/-/tree/{Uri.EscapeDataString(branch).Replace("%2F", "/")}";
+
+    /// <summary>Kiểm tra (không tạo gì).</summary>
+    public static async Task<MrResult> CheckAsync(GitLabClient gl, GlProject p, string baseBranch, string newBranch, CancellationToken ct)
+    {
+        var baseTask = gl.BranchExistsAsync(p.Id, baseBranch, ct);
+        var newTask = gl.BranchExistsAsync(p.Id, newBranch, ct);
+        if (!await baseTask) return new(MrOutcome.MissingBranch, $"Thiếu branch gốc '{baseBranch}'");
+        if (await newTask) return new(MrOutcome.BranchExists, $"Đã có '{newBranch}'", TreeUrl(p, newBranch));
+        return new(MrOutcome.Ready, $"Sẵn sàng tạo từ '{baseBranch}'");
+    }
+
+    public static async Task<MrResult> CreateAsync(GitLabClient gl, GlProject p, string baseBranch, string newBranch,
+        Action<string, LogKind> log, CancellationToken ct)
+    {
+        var check = await CheckAsync(gl, p, baseBranch, newBranch, ct);
+        if (check.Outcome != MrOutcome.Ready)
+        {
+            log(check.Message + ", bỏ qua.", LogKind.Warn);
+            return check;
+        }
+        var b = await gl.CreateBranchAsync(p.Id, newBranch, baseBranch, ct);
+        var url = b.WebUrl ?? TreeUrl(p, newBranch);
+        log($"Đã tạo branch '{newBranch}' từ '{baseBranch}': {url}", LogKind.Success);
+        return new(MrOutcome.BranchCreated, $"Đã tạo '{newBranch}'", url);
+    }
+
+    /// <summary>Kiểm tra nhanh tên branch theo quy tắc git (đủ để chặn lỗi gõ phổ biến).</summary>
+    public static string? ValidateName(string name)
+    {
+        if (name.Length == 0) return "Nhập tên branch mới.";
+        if (name.Any(char.IsWhiteSpace)) return "Tên branch không được có khoảng trắng.";
+        if (name.StartsWith('/') || name.EndsWith('/') || name.EndsWith('.') || name.Contains("..") || name.Contains("//")
+            || name.EndsWith(".lock") || name.IndexOfAny(new[] { '~', '^', ':', '?', '*', '[', '\\' }) >= 0 || name.Contains("@{"))
+            return $"Tên branch '{name}' không hợp lệ.";
+        return null;
+    }
 }
 
 public sealed record MrOptions(

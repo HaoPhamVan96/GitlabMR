@@ -170,6 +170,9 @@ public sealed class AppHost
     {
         _ws.SourceBranch = Str(m, "source");
         _ws.TargetBranch = Str(m, "target");
+        _ws.BranchBase = Str(m, "base");
+        _ws.BranchName = Str(m, "name");
+        _ws.Mode = Str(m, "mode") == "branch" ? "branch" : "mr";
         if (Str(m, "title").Length > 0) _cfg.TitleTemplate = Str(m, "title");
         _cfg.Merge = Bool(m, "merge");
         _cfg.AutoMerge = Bool(m, "autoMerge");
@@ -223,6 +226,9 @@ public sealed class AppHost
             hasToken = _ws.Token != null,
             source = _ws.SourceBranch,
             target = _ws.TargetBranch,
+            branchBase = _ws.BranchBase,
+            branchName = _ws.BranchName,
+            mode = _ws.Mode,
         });
 
         var st = St;
@@ -446,10 +452,23 @@ public sealed class AppHost
         ApplyOptions(m);
 
         var dryRun = Bool(m, "dryRun");
-        var source = Str(m, "source");
-        var target = Str(m, "target");
-        if (source.Length == 0 || target.Length == 0) throw new GitLabException("Nhập branch nguồn và branch đích.");
-        if (source == target) throw new GitLabException("Branch nguồn và đích phải khác nhau.");
+        var branchMode = Str(m, "mode") == "branch";
+        string source, target;
+        if (branchMode)
+        {
+            source = Str(m, "base");  // branch gốc
+            target = Str(m, "name");  // branch mới
+            if (source.Length == 0) throw new GitLabException("Nhập branch gốc (vd: prod).");
+            if (BranchWorkflow.ValidateName(target) is { } nameErr) throw new GitLabException(nameErr);
+            if (source == target) throw new GitLabException("Branch mới phải khác branch gốc.");
+        }
+        else
+        {
+            source = Str(m, "source");
+            target = Str(m, "target");
+            if (source.Length == 0 || target.Length == 0) throw new GitLabException("Nhập branch nguồn và branch đích.");
+            if (source == target) throw new GitLabException("Branch nguồn và đích phải khác nhau.");
+        }
 
         var targets = Ids(m).Where(st.Projects.ContainsKey).Select(id => st.Projects[id]).ToList();
         if (targets.Count == 0) throw new GitLabException("Chưa chọn project nào.");
@@ -463,7 +482,9 @@ public sealed class AppHost
         TrySave();
         Send(new { type = "branches", branches = _cfg.BranchHistory });
 
-        var mode = dryRun ? "Kiểm tra" : opts.Merge ? "Tạo MR + merge" : "Tạo MR";
+        var mode = branchMode
+            ? (dryRun ? "Kiểm tra tạo branch" : "Tạo branch")
+            : (dryRun ? "Kiểm tra" : opts.Merge ? "Tạo MR + merge" : "Tạo MR");
         Log($"── [{_ws.Name}] {mode}: {source} → {target} · {targets.Count} project", LogKind.Info);
         foreach (var p in targets) Send(new { type = "row", id = p.Id, state = "wait" });
 
@@ -485,9 +506,13 @@ public sealed class AppHost
             try
             {
                 Send(new { type = "row", id = p.Id, state = "run" });
-                res = dryRun
-                    ? await MrWorkflow.CheckAsync(gl, p, source, target, ct)
-                    : await MrWorkflow.RunAsync(gl, p, opts, PLog, ct);
+                res = (branchMode, dryRun) switch
+                {
+                    (true, true) => await BranchWorkflow.CheckAsync(gl, p, source, target, ct),
+                    (true, false) => await BranchWorkflow.CreateAsync(gl, p, source, target, PLog, ct),
+                    (false, true) => await MrWorkflow.CheckAsync(gl, p, source, target, ct),
+                    _ => await MrWorkflow.RunAsync(gl, p, opts, PLog, ct),
+                };
                 if (dryRun) PLog(res.Message, res.IsGood ? LogKind.Success : LogKind.Info);
             }
             catch (Exception ex)

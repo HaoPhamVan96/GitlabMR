@@ -17,6 +17,10 @@ public sealed class Workspace
     public List<string> Selected { get; set; } = new();
     public string? SourceBranch { get; set; }
     public string? TargetBranch { get; set; }
+    /// <summary>Chế độ đang mở: "mr" (tạo/merge MR) hoặc "branch" (tạo branch hàng loạt).</summary>
+    public string Mode { get; set; } = "mr";
+    public string? BranchBase { get; set; }
+    public string? BranchName { get; set; }
 
     [JsonIgnore] public string SecretKey => "ws-" + Id;
 }

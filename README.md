@@ -17,7 +17,8 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - **Kiểm tra** (dry-run): báo từng project Sẵn sàng / Không có thay đổi / Thiếu branch / Đã có MR.
 - **Tạo MR** hoặc **Tạo & merge**: dùng lại MR đang mở nếu có, chờ GitLab check mergeable rồi merge;
   pipeline đang chạy thì có thể bật auto-merge. Không merge được thì ghi rõ lý do (conflict, chưa approve, draft…).
-- Xem / copy toàn bộ link MR một lần để dán vào chat.
+- **Tạo branch hàng loạt** (chế độ **Branch** trên thanh): nhập branch gốc (vd `prod`) và tên mới (vd `feature/jwt`) → tạo cho mọi repo đã tick; repo thiếu branch gốc hoặc đã có branch đó thì bỏ qua.
+- Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
 
 ## Tải bản build

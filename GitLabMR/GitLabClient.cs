@@ -100,6 +100,7 @@ public sealed class GlBranch
     public string Name { get; set; } = "";
     public bool Protected { get; set; }
     public bool Default { get; set; }
+    public string? WebUrl { get; set; }
 }
 
 public sealed class GlCommit
@@ -208,6 +209,11 @@ public sealed class GitLabClient : IDisposable
         }
         return all;
     }
+
+    /// <summary>Tạo branch mới <paramref name="name"/> từ <paramref name="fromRef"/> (branch, tag hoặc SHA).</summary>
+    public Task<GlBranch> CreateBranchAsync(long projectId, string name, string fromRef, CancellationToken ct) =>
+        SendAsync<GlBranch>(HttpMethod.Post,
+            $"projects/{projectId}/repository/branches?branch={Esc(name)}&ref={Esc(fromRef)}", null, ct);
 
     public async Task<bool> BranchExistsAsync(long projectId, string branch, CancellationToken ct)
     {
