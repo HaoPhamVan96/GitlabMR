@@ -21,6 +21,17 @@ if [[ "$RID" == osx-* ]]; then
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp -R "$OUT/bin/." "$APP/Contents/MacOS/"
   chmod +x "$APP/Contents/MacOS/GitLabMR"
+  # Icon .icns từ assets/icon.png (sips + iconutil có sẵn trên macOS)
+  if command -v iconutil >/dev/null 2>&1 && [[ -f "$ROOT/GitLabMR/assets/icon.png" ]]; then
+    ICONSET="$OUT/AppIcon.iconset"
+    mkdir -p "$ICONSET"
+    for s in 16 32 128 256 512; do
+      sips -z "$s" "$s" "$ROOT/GitLabMR/assets/icon.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+      sips -z "$((s * 2))" "$((s * 2))" "$ROOT/GitLabMR/assets/icon.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+    rm -rf "$ICONSET"
+  fi
   cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -31,6 +42,7 @@ if [[ "$RID" == osx-* ]]; then
   <key>CFBundleIdentifier</key><string>com.haopv.gitlabmr</string>
   <key>CFBundleExecutable</key><string>GitLabMR</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>

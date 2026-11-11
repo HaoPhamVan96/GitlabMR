@@ -67,14 +67,15 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 /* ---------- top */
 .top{display:flex;align-items:center;gap:10px;padding:10px 14px 0}
 .brand{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px}
-.brand .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center}
-.brand .logo svg{width:13px;height:13px}
+.brand .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(145deg,#6e78f5,#3e48c4);color:#fff;
+  display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.brand .logo svg{width:17px;height:17px;stroke-width:2.2}
 .wstabs{display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px 0}
 .wstabs::-webkit-scrollbar{display:none}
-.wstab{height:28px;padding:0 11px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;
-  white-space:nowrap;display:flex;align-items:center;gap:6px;max-width:230px;flex:none;transition:background .12s,color .12s}
-.wstab .t{overflow:hidden;text-overflow:ellipsis;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px}
-.wstab .t i{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-weight:400;color:var(--faint);margin-left:6px;font-size:11.5px}
+.wstab{height:28px;padding:0 9px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;
+  white-space:nowrap;display:flex;align-items:center;gap:6px;max-width:168px;flex:none;transition:background .12s,color .12s}
+.wstab .t{overflow:hidden;text-overflow:ellipsis;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;min-width:0}
+.wstab .t i{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-weight:400;color:var(--faint);margin-left:5px;font-size:11px}
 .wstab:hover:not(:disabled){background:var(--line2);color:var(--text)}
 .wstab.on{background:var(--panel);border-color:var(--line);color:var(--text);box-shadow:var(--shadow)}
 .wstab .dot{width:6px;height:6px}
@@ -90,8 +91,8 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .conn .cred{display:flex;gap:8px;min-width:0}
 .conn .cred .in{flex:1;min-width:0}
 .conn .cred #gUser{flex:0 1 180px}
-.wstab .kind{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:10px;font-weight:700;
-  color:#fff;background:#3f8e5b;border-radius:4px;padding:1px 4px;margin-left:6px;text-transform:uppercase;letter-spacing:.03em}
+.wstab .kind{font-style:normal;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:9.5px;font-weight:800;
+  color:#fff;background:#3f8e5b;border-radius:4px;width:15px;height:15px;display:grid;place-items:center;flex:none}
 .bar .seg button:disabled{opacity:.35;cursor:not-allowed}
 .conn-chip:hover{border-color:var(--faint)}
 .conn-chip b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -204,7 +205,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 <body>
 
 <header class="top">
-  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 7.2C12 9 13 12 15.5 12"/></svg></span>GitLab MR</div>
+  <div class="brand" title="GitLab MR"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8.5 6.5v11M15.5 9.5c0 3-7 2.2-7 5.5"/><circle cx="8.5" cy="6.2" r="2.2"/><circle cx="8.5" cy="17.8" r="2.2"/><circle cx="15.5" cy="8.8" r="2.2"/></svg></span></div>
   <nav id="wsTabs" class="wstabs"></nav>
   <button id="wsAdd" class="icon" title="Thêm workspace (GitLab / token khác)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <button id="chip" class="conn-chip" title="Cài đặt workspace này"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span><svg viewBox="0 0 24 24" class="gear"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -392,14 +393,17 @@ function applyKind() {
   tokenHint(); applyMode();
 }
 function renderWsTabs() {
+  // Đếm host trùng: chỉ khi 2 workspace cùng host mới hiện thêm tên để phân biệt -> tab gọn
+  const hostCount = {};
+  for (const w of S.wsList) if (w.shortHost) hostCount[w.shortHost] = (hostCount[w.shortHost] || 0) + 1;
   $('#wsTabs').innerHTML = S.wsList.map(w => {
-    // Nhãn chính = GitLab host rút gọn (gitlab.fpt, gitlab.fis…), tên workspace in mờ để phân biệt
     const main = w.shortHost || w.name;
-    const sub = (w.kind === 'gerrit' ? '<em class="kind">Gerrit</em>' : '') +
-      (w.shortHost && w.name && w.name !== w.shortHost ? `<i>${esc(w.name)}</i>` : '');
-    const tip = [w.host, w.name].filter(Boolean).join(' · ') + (w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : '');
+    const sub = w.shortHost && hostCount[w.shortHost] > 1 && w.name ? `<i>${esc(w.name)}</i>` : '';
+    const kind = w.kind === 'gerrit' ? '<em class="kind" title="Gerrit">G</em>' : '';
+    const tip = [w.kind === 'gerrit' ? 'Gerrit' : 'GitLab', w.host, w.name].filter(Boolean).join(' · ') +
+      (w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : '');
     return `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(tip)}" ${S.busy ? 'disabled' : ''}>` +
-      `<span class="dot${w.connected ? ' ok' : ''}"></span><span class="t">${esc(main)}${sub}</span></button>`;
+      `<span class="dot${w.connected ? ' ok' : ''}"></span>${kind}<span class="t">${esc(main)}${sub}</span></button>`;
   }).join('');
 }
 function fillList(id, items) { $(id).innerHTML = (items || []).map(x => `<option value="${esc(x)}">`).join(''); }

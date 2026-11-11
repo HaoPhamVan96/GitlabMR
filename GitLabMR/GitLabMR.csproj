@@ -7,7 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>GitLabMR</AssemblyName>
     <RootNamespace>GitLabMR</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
+    <ApplicationIcon>assets/icon.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
@@ -19,6 +20,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="ui.html" LogicalName="ui.html" />
+    <EmbeddedResource Include="assets/icon.ico" LogicalName="icon.ico" />
   </ItemGroup>
 
 </Project>

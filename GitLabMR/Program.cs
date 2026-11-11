@@ -25,10 +25,31 @@ internal static class Program
 #endif
             .Center();
 
+        // Icon cửa sổ / taskbar (Windows cần file .ico trên đĩa; macOS lấy icon từ .app bundle)
+        if (OperatingSystem.IsWindows() && ExtractIcon() is { } iconPath) window.SetIconFile(iconPath);
+
         var host = new AppHost(window);
         window.RegisterWebMessageReceivedHandler((_, message) => host.OnMessage(message));
         window.LoadRawString(html);
         window.WaitForClose();
         host.Shutdown();
+    }
+
+    private static string? ExtractIcon()
+    {
+        try
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "GitLabMR");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "icon.ico");
+            using var src = Assembly.GetExecutingAssembly().GetManifestResourceStream("icon.ico");
+            if (src == null) return null;
+            using (var dst = File.Create(path)) src.CopyTo(dst);
+            return path;
+        }
+        catch
+        {
+            return null; // thiếu icon thì dùng icon mặc định, không sao
+        }
     }
 }
