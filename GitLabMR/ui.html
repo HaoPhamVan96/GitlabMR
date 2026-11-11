@@ -389,7 +389,11 @@ function saveOpts() { clearTimeout(optTimer); optTimer = setTimeout(() => send('
 let selTimer;
 function saveSel() {
   clearTimeout(selTimer);
-  selTimer = setTimeout(() => send('selection', { paths: S.projects.filter(p => S.sel.has(p.id)).map(p => p.path) }), 300);
+  selTimer = setTimeout(flushSel, 300);
+}
+function flushSel() {
+  clearTimeout(selTimer);
+  if (S.connected) send('selection', { paths: S.projects.filter(p => S.sel.has(p.id)).map(p => p.path) });
 }
 function runLabel() {
   const n = chosen().length;
@@ -589,6 +593,7 @@ document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if
 $('#wsTabs').addEventListener('click', e => {
   const b = e.target.closest('.wstab'); if (!b || S.busy) return;
   if (b.dataset.ws === S.wsActive) { $('#conn').hidden = !$('#conn').hidden; return; }
+  flushSel();
   send('switch', { id: b.dataset.ws });
 });
 $('#wsAdd').onclick = () => { if (!S.busy) send('addWs'); };
@@ -632,8 +637,8 @@ $('#rows').addEventListener('click', e => {
   if (f) {
     e.preventDefault(); e.stopPropagation();
     const p = S.projects.find(x => x.id === +f.closest('.row').dataset.id); if (!p) return;
+    // ★ chỉ đổi favorite, KHÔNG đụng tới checkbox chọn repo
     p.fav = !p.fav; send('favorite', { path: p.path, on: p.fav });
-    if (p.fav) { S.sel.add(p.id); saveSel(); }
     if (S.tab === 'fav' && !p.fav) render(); else { updateRow(p.id); counts(); }
     toast(p.fav ? `★ Đã thêm ${p.name} vào Favorite` : `Đã bỏ ${p.name} khỏi Favorite`);
     return;

@@ -19,7 +19,10 @@ public sealed class AppHost
         public GitLabClient? Client;
         public string ClientKey = "";
         public Dictionary<long, GlProject> Projects = new();
-        public object? Connected;  // payload "connected" gần nhất
+        public List<GlProject> Ordered = new();
+        public string Host = "", User = "";
+        public int Hidden;
+        public bool IsConnected;
         public object? Branches;   // payload "remoteBranches" gần nhất
     }
 
@@ -112,6 +115,7 @@ public sealed class AppHost
                     break;
                 case "selection":
                     _ws.Selected = m["paths"]?.AsArray().Select(x => (string?)x ?? "").ToList() ?? new();
+                    TrySave(); // tick được lưu riêng, độc lập với favorite
                     break;
                 case "favorite":
                     var favPath = Str(m, "path");
@@ -149,7 +153,7 @@ public sealed class AppHost
         items = _cfg.Workspaces.Select(w =>
         {
             ProjectRef.TryParse(w.Sources.FirstOrDefault(), out var r, out _);
-            return new { id = w.Id, name = w.Name, host = r?.Host ?? "", shortHost = ShortHost(r?.Host), connected = State(w).Connected != null };
+            return new { id = w.Id, name = w.Name, host = r?.Host ?? "", shortHost = ShortHost(r?.Host), connected = State(w).IsConnected };
         }),
     });
 
@@ -232,9 +236,9 @@ public sealed class AppHost
         });
 
         var st = St;
-        if (st.Connected != null)
+        if (st.IsConnected)
         {
-            Send(st.Connected);                    // đã load rồi -> hiện ngay, không gọi API
+            Send(BuildConnected(_ws, st));         // đã load rồi -> hiện ngay, không gọi API
             if (st.Branches != null) Send(st.Branches);
         }
         else if (_ws.Token != null && _ws.Sources.Count > 0)
@@ -326,21 +330,38 @@ public sealed class AppHost
         AppConfig.SetToken(ws, token);
         TrySave();
 
-        var favs = ws.Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var saved = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var hasFav = projects.Any(p => favs.Contains(p.PathWithNamespace));
-        // Có favorite -> tự tick sẵn favorite; chưa có -> dùng lựa chọn lần trước
-        bool IsSelected(GlProject p) => projects.Count == 1 || (hasFav ? favs.Contains(p.PathWithNamespace) : saved.Contains(p.PathWithNamespace));
+        st.Ordered = projects;
+        st.Host = first.Host;
+        st.User = user.Username;
+        st.Hidden = hidden;
+        st.IsConnected = true;
+        st.Branches = null;
+        SendWsList();
+        Send(BuildConnected(ws, st));
+        Log($"[{ws.Name}] @{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
 
-        var prefix = CommonNamespace(projects.Select(p => p.PathWithNamespace));
-        st.Connected = new
+        // Tải luôn branch của các project đang tick để gợi ý (chưa tick gì thì lấy tất cả)
+        var ticked = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await LoadBranchesAsync(projects.Where(p => ticked.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList(), ct);
+    }
+
+    /// <summary>
+    /// Payload danh sách project. Luôn đọc favorite (★) và tick (checkbox) hiện tại từ cấu hình workspace,
+    /// 2 thứ độc lập nhau: ★ không làm tick, tick không làm ★.
+    /// </summary>
+    private static object BuildConnected(Workspace ws, WsState st)
+    {
+        var favs = ws.Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ticked = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var prefix = CommonNamespace(st.Ordered.Select(p => p.PathWithNamespace));
+        return new
         {
             type = "connected",
             wsId = ws.Id,
-            host = first.Host,
-            user = user.Username,
-            hidden,
-            projects = projects.Select(p =>
+            host = st.Host,
+            user = st.User,
+            hidden = st.Hidden,
+            projects = st.Ordered.Select(p =>
             {
                 var rel = p.PathWithNamespace[prefix.Length..];
                 var cut = rel.LastIndexOf('/');
@@ -353,17 +374,10 @@ public sealed class AppHost
                     defaultBranch = p.DefaultBranch,
                     webUrl = p.WebUrl,
                     fav = favs.Contains(p.PathWithNamespace),
-                    selected = IsSelected(p),
+                    selected = st.Ordered.Count == 1 || ticked.Contains(p.PathWithNamespace),
                 };
             }).ToList(),
         };
-        st.Branches = null;
-        SendWsList();
-        Send(st.Connected);
-        Log($"[{ws.Name}] @{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
-
-        // Tải luôn branch của các project đang tick (favorite) để gợi ý
-        await LoadBranchesAsync(projects.Where(IsSelected).Select(p => p.Id).ToList(), ct);
     }
 
     /// <summary>URL là group -> mọi project; là repo -> 1 project; group không đọc được (chỉ member subgroup) -> lọc theo quyền.</summary>
@@ -447,7 +461,7 @@ public sealed class AppHost
     private async Task RunBatchAsync(JsonNode m, CancellationToken ct)
     {
         var st = St;
-        if (st.Client == null || st.Connected == null) throw new GitLabException("Kết nối trước đã.");
+        if (st.Client == null || !st.IsConnected) throw new GitLabException("Kết nối trước đã.");
         var gl = st.Client;
         ApplyOptions(m);
 
