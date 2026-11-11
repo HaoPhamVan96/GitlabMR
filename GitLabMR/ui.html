@@ -78,7 +78,23 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 @keyframes pulse{50%{opacity:.35}}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
-.conn{margin:10px 14px 0;padding:10px;display:grid;grid-template-columns:1.4fr 1fr auto auto;gap:8px;align-items:center}
+.conn{margin:10px 14px 0;padding:10px;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+.conn .src-head{grid-column:1/-1;display:flex;align-items:baseline;gap:8px;font-size:12px}
+.conn .src-head .hint{color:var(--faint);font-size:11.5px}
+.conn textarea.src{grid-column:1/-1;height:74px;font:12px/1.6 "Cascadia Mono",Consolas,monospace;white-space:pre;overflow:auto}
+.seg{display:flex;background:var(--line2);border-radius:8px;padding:2px;gap:2px;flex:none}
+.seg button{height:24px;border:0;background:none;border-radius:6px;padding:0 10px;font-weight:600;color:var(--muted);
+  display:flex;align-items:center;gap:5px;transition:background .12s,color .12s}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.12)}
+.seg button svg{width:12px;height:12px}
+.seg .n{font-size:11px;color:var(--faint);font-weight:600}
+.fav{width:22px;height:22px;border:0;background:none;padding:0;display:grid;place-items:center;color:var(--line);border-radius:5px;flex:none}
+.row:hover .fav{color:var(--faint)}
+.fav:hover{background:var(--line);color:#e0a106!important}
+.fav.on{color:#e0a106}
+.fav svg{width:15px;height:15px}
+.fav.on svg{fill:currentColor}
 .conn .mini{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
 
 /* ---------- branch bar */
@@ -151,8 +167,9 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 @media (max-width:660px){
   .count{display:none}
   .search{max-width:none}
-  .conn{grid-template-columns:1fr 1fr}
+  .conn{grid-template-columns:1fr auto}
   .conn .mini{grid-column:1}
+  .conn .src-head .hint{display:none}
 }
 @media (max-width:520px){ .switch{font-size:0;gap:0} }
 [hidden]{display:none!important}
@@ -166,8 +183,9 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 </header>
 
 <section id="conn" class="card conn">
-  <input id="url" class="in" list="urlList" placeholder="https://gitlab.company.com/group" spellcheck="false">
-  <datalist id="urlList"></datalist>
+  <div class="src-head"><b>Group / repo</b><span class="hint">Mỗi dòng 1 link — group thì lấy hết project bên trong, repo thì thêm đúng repo đó. Ctrl+Enter để kết nối.</span></div>
+  <textarea id="url" class="in src" spellcheck="false" placeholder="https://gitlab.company.com/my-group
+https://gitlab.company.com/other-group/some-repo"></textarea>
   <input id="token" class="in" type="password" placeholder="Access token (scope api)" spellcheck="false">
   <label class="mini"><input id="ssl" type="checkbox" class="chk"> Bỏ qua SSL</label>
   <button id="btnConnect" class="btn primary">Kết nối</button>
@@ -197,9 +215,14 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 
 <main class="card list">
   <div class="lh">
-    <input id="all" type="checkbox" class="chk" title="Chọn / bỏ chọn các dòng đang hiển thị">    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="filter" class="in" placeholder="Lọc project…" spellcheck="false"></div>
+    <input id="all" type="checkbox" class="chk" title="Chọn / bỏ chọn các dòng đang hiển thị">
+    <div id="tabs" class="seg">
+      <button data-tab="fav"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>Favorite <span id="nFav" class="n"></span></button>
+      <button data-tab="all">All <span id="nAll" class="n"></span></button>
+    </div>    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="filter" class="in" placeholder="Lọc project…" spellcheck="false"></div>
     <button id="pickReady" class="link" hidden>Chỉ chọn project sẵn sàng</button>
     <span id="count" class="count"></span>
+    <button id="btnAdd" class="icon" title="Thêm group / repo"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
     <button id="btnReload" class="icon" title="Tải lại danh sách project"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
   </div>
   <div id="rows" class="rows"><div class="empty">Nhập URL group và token rồi bấm <b>&nbsp;Kết nối</b></div></div>
@@ -247,15 +270,18 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const COPY = '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
 const EXT = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
-const S = { projects: [], sel: new Set(), st: {}, tokenHosts: [], busy: false, connected: false, errs: 0, remote: [], remoteTotal: 0, history: [], hidden: 0 };
-const chosen = () => S.projects.filter(p => S.sel.has(p.id));
+const S = { projects: [], sel: new Set(), st: {}, tokenHosts: [], busy: false, connected: false, errs: 0, remote: [], remoteTotal: 0, history: [], hidden: 0, tab: 'all' };
+const STAR = '<svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
+const inTab = p => S.tab === 'all' || p.fav;
+const tabProjects = () => S.projects.filter(inTab);
+const chosen = () => S.projects.filter(p => inTab(p) && S.sel.has(p.id));
 
 const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', Failed: 'err' };
 const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', Failed: 'Lỗi' };
 
 /* ---------- helpers */
 function hostOf(u) {
-  u = (u || '').trim();
+  u = (u || '').split('\n').map(x => x.trim()).find(x => x && !x.startsWith('#')) || '';
   if (/^git@/i.test(u)) return u.slice(4).split(':')[0].toLowerCase();
   try { return new URL(u).host.toLowerCase(); } catch { return ''; }
 }
@@ -299,8 +325,14 @@ function runLabel() {
 
 /* ---------- list */
 function visible() {
-  const f = $('#filter').value.trim().toLowerCase();
-  return f ? S.projects.filter(p => p.path.toLowerCase().includes(f)) : S.projects;
+  const f = $('#filter').value.trim().toLowerCase(), list = tabProjects();
+  return f ? list.filter(p => p.path.toLowerCase().includes(f)) : list;
+}
+function renderTabs() {
+  const favs = S.projects.filter(p => p.fav);
+  const lbl = (list) => { const n = list.filter(p => S.sel.has(p.id)).length; return n ? `${n}/${list.length}` : `${list.length}`; };
+  $('#nFav').textContent = lbl(favs); $('#nAll').textContent = lbl(S.projects);
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
 }
 function rowHtml(p) {
   const s = S.st[p.id], on = S.sel.has(p.id);
@@ -309,12 +341,16 @@ function rowHtml(p) {
   const link = s?.url ? `<a class="mr" href="#" data-copy="${esc(s.url)}" title="Copy link MR">${COPY}</a><a class="mr" href="#" data-url="${esc(s.url)}" title="Mở MR">${EXT}</a>` : '';
   return `<label class="row" data-id="${p.id}" title="${esc(p.path)}${p.defaultBranch ? ' · default: ' + esc(p.defaultBranch) : ''}">` +
     `<input type="checkbox" class="chk" ${on ? 'checked' : ''} ${S.busy ? 'disabled' : ''}>` +
+    `<button class="fav${p.fav ? ' on' : ''}" data-fav="1" title="${p.fav ? 'Bỏ khỏi Favorite' : 'Thêm vào Favorite'}">${STAR}</button>` +
     `<span class="name"><span class="ns">${esc(p.ns)}</span>${esc(p.name)}</span>${badge}${link}</label>`;
 }
 function render() {
   const v = visible();
   $('#rows').innerHTML = S.projects.length
-    ? (v.length ? v.map(rowHtml).join('') : '<div class="empty">Không có project nào khớp bộ lọc</div>')
+    ? (v.length ? v.map(rowHtml).join('')
+      : S.tab === 'fav' && !$('#filter').value.trim()
+        ? '<div class="empty">Chưa có repo yêu thích.<br>Sang tab <b>&nbsp;All&nbsp;</b> bấm ☆ ở repo hay dùng để thêm vào đây.</div>'
+        : '<div class="empty">Không có project nào khớp bộ lọc</div>')
     : `<div class="empty">${S.connected ? 'Không có project nào' : 'Nhập URL group và token rồi bấm <b>&nbsp;Kết nối</b>'}</div>`;
   counts();
 }
@@ -322,7 +358,8 @@ function counts() {
   const v = visible(), n = v.filter(p => S.sel.has(p.id)).length;
   const all = $('#all');
   all.checked = v.length > 0 && n === v.length; all.indeterminate = n > 0 && n < v.length; all.disabled = S.busy || !v.length;
-  $('#count').textContent = S.projects.length ? `${chosen().length}/${S.projects.length} đã chọn` : '';
+  $('#count').textContent = S.projects.length ? `${chosen().length}/${tabProjects().length} đã chọn` : '';
+  renderTabs();
   $('#count').title = S.hidden ? `Đang ẩn ${S.hidden} project (libraries + shared) theo cấu hình` : '';
   runLabel();
 }
@@ -357,10 +394,10 @@ function updateRow(id) {
 /* ---------- actions */
 function connect() {
   if (S.busy) return;
-  const url = $('#url').value.trim();
-  if (!url) return toast('Nhập URL group hoặc project', true);
+  const urls = $('#url').value.trim();
+  if (!urls) { $('#conn').hidden = false; return toast('Nhập ít nhất 1 link group hoặc repo', true); }
   chip('Đang kết nối…', 'wait');
-  send('connect', { url, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
+  send('connect', { urls, token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
 }
 function run(dryRun) {
   if (S.busy) return;
@@ -384,7 +421,7 @@ function run(dryRun) {
 }
 function setBusy(b) {
   S.busy = b;
-  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload']) $(id).disabled = b;
+  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd']) $(id).disabled = b;
   $('#btnStop').hidden = !b;
   document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
   counts();
@@ -400,19 +437,21 @@ const H = {
   init(d) {
     S.tokenHosts = d.tokenHosts || [];
     S.history = d.branches || [];
-    fillList('#urlList', d.urls); fillBranches();
-    $('#url').value = d.lastUrl || ''; $('#ssl').checked = !!d.ignoreSsl;
+    fillBranches();
+    const sources = d.sources || [];
+    $('#url').value = sources.join('\n'); $('#ssl').checked = !!d.ignoreSsl;
     $('#source').value = d.source || ''; $('#target').value = d.target || '';
     $('#title').value = d.title || ''; $('#merge').checked = !!d.merge; $('#autoMerge').checked = !!d.autoMerge;
     $('#removeSource').checked = !!d.removeSource; $('#squash').checked = !!d.squash;
     tokenHint(); runLabel();
-    if (d.lastUrl && S.tokenHosts.includes(hostOf(d.lastUrl))) connect(); else $('#url').focus();
+    if (sources.length && S.tokenHosts.includes(hostOf(sources[0]))) connect(); else $('#url').focus();
   },
   connected(d) {
     S.connected = true; S.projects = d.projects; S.st = {}; S.hidden = d.hidden || 0;
     S.sel = new Set(d.projects.filter(p => p.selected).map(p => p.id));
     S.tokenHosts = d.tokenHosts || S.tokenHosts;
-    fillList('#urlList', d.urls); $('#token').value = ''; tokenHint();
+    $('#url').value = (d.sources || []).join('\n'); $('#token').value = ''; tokenHint();
+    S.tab = d.projects.some(p => p.fav) ? 'fav' : 'all';
     chip(`${d.scope} · ${d.projects.length} project`, 'ok', '@' + d.user);
     $('#conn').hidden = true; $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
     render(); updateMr();
@@ -449,7 +488,18 @@ window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } c
 /* ---------- UI events */
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
-for (const id of ['#url', '#token']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+$('#token').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+$('#url').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); connect(); } });
+$('#btnAdd').onclick = () => {
+  $('#conn').hidden = false;
+  const t = $('#url'); if (t.value && !t.value.endsWith('\n')) t.value += '\n';
+  t.focus(); t.setSelectionRange(t.value.length, t.value.length);
+  toast('Dán link group / repo vào dòng mới rồi bấm Kết nối');
+};
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  if (S.tab === b.dataset.tab) return;
+  S.tab = b.dataset.tab; $('#filter').value = ''; $('#pickReady').hidden = true; render();
+});
 $('#url').addEventListener('input', tokenHint);
 $('#ssl').onchange = saveOpts;
 $('#swap').onclick = () => { const s = $('#source').value; $('#source').value = $('#target').value; $('#target').value = s; saveOpts(); };
@@ -467,19 +517,30 @@ $('#rows').addEventListener('change', e => {
   const id = +row.dataset.id; e.target.checked ? S.sel.add(id) : S.sel.delete(id); counts(); saveSel();
 });
 $('#rows').addEventListener('click', e => {
+  const f = e.target.closest('.fav');
+  if (f) {
+    e.preventDefault(); e.stopPropagation();
+    const p = S.projects.find(x => x.id === +f.closest('.row').dataset.id); if (!p) return;
+    p.fav = !p.fav; send('favorite', { path: p.path, on: p.fav });
+    if (p.fav) { S.sel.add(p.id); saveSel(); }
+    if (S.tab === 'fav' && !p.fav) render(); else { updateRow(p.id); counts(); }
+    toast(p.fav ? `★ Đã thêm ${p.name} vào Favorite` : `Đã bỏ ${p.name} khỏi Favorite`);
+    return;
+  }
   const a = e.target.closest('.mr'); if (!a) return;
   e.preventDefault(); e.stopPropagation();
   if (a.dataset.copy) copyText(a.dataset.copy, 'link MR'); else send('open', { url: a.dataset.url });
 });
 $('#pickReady').onclick = () => {
-  for (const p of S.projects) S.st[p.id]?.outcome === 'Ready' ? S.sel.add(p.id) : S.sel.delete(p.id);
+  for (const p of tabProjects()) S.st[p.id]?.outcome === 'Ready' ? S.sel.add(p.id) : S.sel.delete(p.id);
   render(); saveSel(); toast(`Đã chọn ${chosen().length} project sẵn sàng`);
 };
 
 $('#btnBranches').onclick = () => {
   if (S.busy) return;
   if (!S.connected) return toast('Kết nối trước đã', true);
-  send('loadBranches', { ids: chosen().map(p => p.id) });
+  const ids = chosen().map(p => p.id);
+  send('loadBranches', { ids: ids.length ? ids : tabProjects().map(p => p.id) });
 };
 $('#btnReload').onclick = () => { if (!S.busy) connect(); };
 $('#btnCheck').onclick = () => run(true);

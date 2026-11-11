@@ -10,6 +10,10 @@ public sealed class AppConfig
 {
     public List<string> Projects { get; set; } = new();
     public string? LastProject { get; set; }
+    /// <summary>Danh sách nguồn đang dùng: mỗi phần tử là URL group hoặc repo.</summary>
+    public List<string> Sources { get; set; } = new();
+    /// <summary>Đường dẫn project yêu thích (tab Favorite).</summary>
+    public List<string> Favorites { get; set; } = new();
     /// <summary>host (lowercase) -> token đã bảo vệ (xem Platform.ProtectToken)</summary>
     public Dictionary<string, string> Tokens { get; set; } = new();
     /// <summary>group/project path -> danh sách project đã tick lần trước</summary>
@@ -46,7 +50,12 @@ public sealed class AppConfig
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig();
+            {
+                var cfg = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig();
+                if (cfg.Sources.Count == 0 && !string.IsNullOrWhiteSpace(cfg.LastProject))
+                    cfg.Sources.Add(cfg.LastProject!); // nâng cấp từ bản 1 URL
+                return cfg;
+            }
         }
         catch
         {

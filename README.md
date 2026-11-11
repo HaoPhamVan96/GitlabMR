@@ -6,8 +6,9 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 
 ## Tính năng
 
-- Dán URL **group** (hoặc 1 project) + Personal Access Token (scope `api`) → tự load toàn bộ project, kể cả subgroup.
-  Nếu bạn chỉ là member của subgroup/project con (API group trả 404) app vẫn tự tìm project theo quyền Developer+.
+- Nhập **nhiều group / repo** (mỗi dòng 1 link, nút **+** để thêm) + Personal Access Token (scope `api`) → app gộp tất cả project, bỏ trùng.
+  Group thì lấy hết project bên trong kể cả subgroup; nếu bạn chỉ là member của subgroup/project con (API group trả 404) app vẫn tự tìm project theo quyền Developer+.
+- Tab **Favorite / All**: bấm ☆ để lưu repo hay dùng. Mở app là vào thẳng Favorite, repo yêu thích được tick sẵn và tải branch luôn.
 - Ẩn sẵn các project library/shared (cấu hình `Exclude` trong config).
 - Gợi ý branch thật từ GitLab kèm số project có branch đó (`pre-uat · 12/14 project`), nút ⟳ để tải lại.
 - **Kiểm tra** (dry-run): báo từng project Sẵn sàng / Không có thay đổi / Thiếu branch / Đã có MR.

@@ -11,6 +11,7 @@ namespace GitLabMR;
 public sealed class AppHost
 {
     private const int MaxParallel = 4;
+    private const string SelKey = "*";
     private static readonly JsonSerializerOptions Js = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly PhotinoWindow _window;
@@ -62,7 +63,7 @@ public sealed class AppHost
                     SendInit();
                     break;
                 case "connect":
-                    await GuardAsync(ct => ConnectAsync(Str(m, "url"), Str(m, "token"), Bool(m, "ignoreSsl"), ct));
+                    await GuardAsync(ct => ConnectAsync((string?)m["urls"] ?? "", Str(m, "token"), Bool(m, "ignoreSsl"), ct));
                     break;
                 case "run":
                     await GuardAsync(ct => RunBatchAsync(m, ct));
@@ -87,7 +88,13 @@ public sealed class AppHost
                     break;
                 case "selection":
                     if (_ref != null)
-                        _cfg.Selected[_ref.Path] = m["paths"]?.AsArray().Select(x => (string?)x ?? "").ToList() ?? new();
+                        _cfg.Selected[SelKey] = m["paths"]?.AsArray().Select(x => (string?)x ?? "").ToList() ?? new();
+                    break;
+                case "favorite":
+                    var favPath = Str(m, "path");
+                    _cfg.Favorites.RemoveAll(x => x.Equals(favPath, StringComparison.OrdinalIgnoreCase));
+                    if (Bool(m, "on") && favPath.Length > 0) _cfg.Favorites.Add(favPath);
+                    TrySave();
                     break;
             }
         }
@@ -104,8 +111,7 @@ public sealed class AppHost
     private void SendInit() => Send(new
     {
         type = "init",
-        urls = _cfg.Projects,
-        lastUrl = _cfg.LastProject,
+        sources = _cfg.Sources,
         tokenHosts = _cfg.Tokens.Keys,
         ignoreSsl = _cfg.IgnoreSsl,
         source = _cfg.LastSourceBranch,
@@ -172,72 +178,75 @@ public sealed class AppHost
         return _client;
     }
 
-    private async Task ConnectAsync(string url, string token, bool ignoreSsl, CancellationToken ct)
+    /// <summary>Kết nối nhiều nguồn (mỗi dòng 1 URL group hoặc repo, cùng 1 GitLab host), gộp project và bỏ trùng.</summary>
+    private async Task ConnectAsync(string urlsText, string token, bool ignoreSsl, CancellationToken ct)
     {
-        if (!ProjectRef.TryParse(url, out var r, out var err)) throw new GitLabException(err);
-        if (token.Length == 0) token = _cfg.GetToken(r!.Host) ?? "";
+        var lines = urlsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(l => !l.StartsWith('#')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (lines.Count == 0) throw new GitLabException("Nhập ít nhất 1 URL group hoặc repo.");
+
+        var refs = new List<(string Url, ProjectRef Ref)>();
+        foreach (var line in lines)
+        {
+            if (!ProjectRef.TryParse(line, out var pr, out var err)) throw new GitLabException($"{line}: {err}");
+            refs.Add((line, pr!));
+        }
+        var first = refs[0].Ref;
+        var otherHost = refs.FirstOrDefault(x => x.Ref.Host != first.Host);
+        if (otherHost.Ref != null)
+            throw new GitLabException($"Mọi URL phải cùng 1 GitLab ({first.Host}); '{otherHost.Url}' khác host.");
+
+        if (token.Length == 0) token = _cfg.GetToken(first.Host) ?? "";
         if (token.Length == 0) throw new GitLabException("Chưa nhập access token.");
 
-        var gl = EnsureClient(r!, token, ignoreSsl);
-        Log($"Kết nối {r!.BaseUrl} …", LogKind.Info);
+        var gl = EnsureClient(first, token, ignoreSsl);
+        Log($"Kết nối {first.BaseUrl} …", LogKind.Info);
         var user = await gl.GetCurrentUserAsync(ct);
 
-        List<GlProject> projects;
-        try
-        {
-            var group = await gl.GetGroupAsync(r.Path, ct);
-            projects = await gl.GetGroupProjectsAsync(group.Id, ct);
-        }
-        catch (GitLabException ex) when (ex.Status == HttpStatusCode.NotFound)
-        {
-            GlProject? single = null;
-            try { single = await gl.GetProjectAsync(r.Path, ct); }
-            catch (GitLabException ex2) when (ex2.Status == HttpStatusCode.NotFound) { }
-
-            if (single != null)
-            {
-                projects = new List<GlProject> { single };
-            }
-            else
-            {
-                // Chỉ là member của subgroup/project con -> API groups trả 404, lọc project theo quyền
-                projects = await gl.GetProjectsUnderPathAsync(r.Path, ct);
-                if (projects.Count == 0)
-                    throw new GitLabException($"Không tìm thấy '{r.Path}', hoặc bạn không có quyền Developer ở project nào bên trong.");
-            }
-        }
-
-        // Ẩn library / shared theo cấu hình (không ẩn khi URL trỏ thẳng vào 1 project)
+        var all = new Dictionary<long, GlProject>();
         var hidden = 0;
-        if (projects.Count > 1)
+        foreach (var (url, r) in refs)
         {
-            hidden = projects.Count(p => _cfg.IsExcluded(p.PathWithNamespace));
-            projects = projects.Where(p => !_cfg.IsExcluded(p.PathWithNamespace)).ToList();
+            var (list, isSingle) = await ResolveSourceAsync(gl, r, ct);
+            if (!isSingle) // chỉ ẩn library/shared khi lấy cả group; repo add tay thì giữ
+            {
+                hidden += list.Count(p => _cfg.IsExcluded(p.PathWithNamespace));
+                list = list.Where(p => !_cfg.IsExcluded(p.PathWithNamespace)).ToList();
+            }
+            foreach (var p in list) all[p.Id] = p;
+            Log($"{r.Path}: {list.Count} project", LogKind.Info);
         }
+        var projects = all.Values.OrderBy(p => p.PathWithNamespace, StringComparer.OrdinalIgnoreCase).ToList();
 
-        _ref = r;
+        _ref = first;
         _projects = projects.ToDictionary(p => p.Id);
 
-        _cfg.SetToken(r.Host, token);
-        _cfg.RememberProject(url);
+        _cfg.SetToken(first.Host, token);
+        _cfg.Sources = lines;
+        _cfg.LastProject = lines[0];
+        foreach (var l in lines.AsEnumerable().Reverse()) _cfg.RememberProject(l);
+        _cfg.LastProject = lines[0];
         _cfg.IgnoreSsl = ignoreSsl;
         TrySave();
 
-        var saved = _cfg.Selected.TryGetValue(r.Path, out var sel) ? sel.ToHashSet(StringComparer.OrdinalIgnoreCase) : new();
-        var prefix = r.Path + "/";
+        var favs = _cfg.Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var saved = _cfg.Selected.TryGetValue(SelKey, out var sel) ? sel.ToHashSet(StringComparer.OrdinalIgnoreCase) : new();
+        var hasFav = projects.Any(p => favs.Contains(p.PathWithNamespace));
+        // Có favorite -> tự tick sẵn favorite; chưa có -> dùng lựa chọn lần trước
+        bool IsSelected(GlProject p) => projects.Count == 1 || (hasFav ? favs.Contains(p.PathWithNamespace) : saved.Contains(p.PathWithNamespace));
+
+        var prefix = CommonNamespace(projects.Select(p => p.PathWithNamespace));
         Send(new
         {
             type = "connected",
-            scope = projects.Count == 1 && projects[0].PathWithNamespace.Equals(r.Path, StringComparison.OrdinalIgnoreCase)
-                ? projects[0].PathWithNamespace : r.Path,
+            scope = refs.Count == 1 ? first.Path : $"{refs.Count} nguồn",
             user = user.Username,
             hidden,
-            urls = _cfg.Projects,
+            sources = lines,
             tokenHosts = _cfg.Tokens.Keys,
-            projects = projects.OrderBy(p => p.PathWithNamespace, StringComparer.OrdinalIgnoreCase).Select(p =>
+            projects = projects.Select(p =>
             {
-                var rel = p.PathWithNamespace.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    ? p.PathWithNamespace[prefix.Length..] : p.PathWithNamespace;
+                var rel = p.PathWithNamespace[prefix.Length..];
                 var cut = rel.LastIndexOf('/');
                 return new
                 {
@@ -247,15 +256,52 @@ public sealed class AppHost
                     name = cut >= 0 ? rel[(cut + 1)..] : rel,
                     defaultBranch = p.DefaultBranch,
                     webUrl = p.WebUrl,
-                    selected = projects.Count == 1 || saved.Contains(p.PathWithNamespace),
+                    fav = favs.Contains(p.PathWithNamespace),
+                    selected = IsSelected(p),
                 };
             }),
         });
-        Log($"@{user.Username} · {r.Path} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
+        Log($"@{user.Username} · {projects.Count} project" + (hidden > 0 ? $" (ẩn {hidden})" : ""), LogKind.Success);
 
-        // Tải luôn danh sách branch (của các project đang chọn, hoặc tất cả) để gợi ý
-        var selectedIds = projects.Where(p => projects.Count == 1 || saved.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList();
-        await LoadBranchesAsync(selectedIds, ct);
+        // Tải luôn branch của các project đang tick (favorite) để gợi ý
+        await LoadBranchesAsync(projects.Where(IsSelected).Select(p => p.Id).ToList(), ct);
+    }
+
+    /// <summary>URL là group -> mọi project; là repo -> 1 project; group không đọc được (chỉ member subgroup) -> lọc theo quyền.</summary>
+    private static async Task<(List<GlProject> List, bool IsSingle)> ResolveSourceAsync(GitLabClient gl, ProjectRef r, CancellationToken ct)
+    {
+        try
+        {
+            var group = await gl.GetGroupAsync(r.Path, ct);
+            return (await gl.GetGroupProjectsAsync(group.Id, ct), false);
+        }
+        catch (GitLabException ex) when (ex.Status == HttpStatusCode.NotFound) { }
+
+        try
+        {
+            return (new List<GlProject> { await gl.GetProjectAsync(r.Path, ct) }, true);
+        }
+        catch (GitLabException ex) when (ex.Status == HttpStatusCode.NotFound) { }
+
+        var under = await gl.GetProjectsUnderPathAsync(r.Path, ct);
+        if (under.Count == 0)
+            throw new GitLabException($"Không tìm thấy '{r.Path}', hoặc bạn không có quyền Developer ở project nào bên trong.");
+        return (under, false);
+    }
+
+    /// <summary>Phần namespace chung của mọi project (vd "fis/peoplex/") để hiển thị đường dẫn ngắn gọn.</summary>
+    private static string CommonNamespace(IEnumerable<string> paths)
+    {
+        string[]? common = null;
+        foreach (var path in paths)
+        {
+            var segs = path.Split('/')[..^1];
+            if (common == null) { common = segs; continue; }
+            var n = 0;
+            while (n < common.Length && n < segs.Length && common[n].Equals(segs[n], StringComparison.OrdinalIgnoreCase)) n++;
+            common = common[..n];
+        }
+        return common is { Length: > 0 } ? string.Join('/', common) + "/" : "";
     }
 
     /// <summary>Gom tên branch của các project (chưa chọn project nào thì lấy tất cả), kèm số project có branch đó.</summary>
@@ -318,7 +364,7 @@ public sealed class AppHost
 
         _cfg.RememberBranch(target);
         _cfg.RememberBranch(source);
-        _cfg.Selected[_ref.Path] = targets.Select(p => p.PathWithNamespace).ToList();
+        _cfg.Selected[SelKey] = targets.Select(p => p.PathWithNamespace).ToList();
         TrySave();
         Send(new { type = "branches", branches = _cfg.BranchHistory });
 
