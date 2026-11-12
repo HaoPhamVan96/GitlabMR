@@ -1,5 +1,6 @@
 using System.Reflection;
 using Photino.NET;
+using Velopack;
 
 namespace GitLabMR;
 
@@ -8,6 +9,12 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // Phải chạy đầu tiên: xử lý hook cài / gỡ / cập nhật của Velopack.
+        // Tắt tự áp dụng lúc mở app: Velopack sẽ đóng cưỡng bức các cửa sổ khác của app (có thể đang chạy batch).
+        // Bản mới được áp dụng khi đóng app (Updater.ApplyOnExit) hoặc khi bấm nút Cập nhật.
+        // App không cài qua Velopack (macOS, chạy exe trực tiếp) thì không làm gì.
+        try { VelopackApp.Build().SetAutoApplyOnStartup(false).Run(); } catch { }
+
         string html;
         using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ui.html")!)
         using (var reader = new StreamReader(stream))

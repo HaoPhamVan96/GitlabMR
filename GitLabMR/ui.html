@@ -70,6 +70,14 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .brand .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(145deg,#6e78f5,#3e48c4);color:#fff;
   display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 .brand .logo svg{width:17px;height:17px;stroke-width:2.2}
+.brand{border:0;background:none;padding:0;cursor:pointer;border-radius:8px}
+.brand:hover .logo{filter:brightness(1.08)}
+.upd{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;flex:none;white-space:nowrap;font-size:12px;font-weight:600;
+  border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent)}
+.upd svg{width:13px;height:13px;stroke-width:2.2}
+.upd:hover:not(:disabled){background:var(--accent);color:var(--accent-ink)}
+.upd.dl{border-color:var(--line);background:var(--panel);color:var(--muted);cursor:default}
+.upd.dl svg{animation:pulse 1s infinite}
 .wstabs{display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px 0}
 .wstabs::-webkit-scrollbar{display:none}
 .wstab{height:28px;padding:0 9px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;
@@ -205,9 +213,10 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 <body>
 
 <header class="top">
-  <div class="brand" title="GitLab MR"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8.5 6.5v11M15.5 9.5c0 3-7 2.2-7 5.5"/><circle cx="8.5" cy="6.2" r="2.2"/><circle cx="8.5" cy="17.8" r="2.2"/><circle cx="15.5" cy="8.8" r="2.2"/></svg></span></div>
+  <button id="brand" class="brand" title="GitLab MR – bấm để kiểm tra cập nhật"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8.5 6.5v11M15.5 9.5c0 3-7 2.2-7 5.5"/><circle cx="8.5" cy="6.2" r="2.2"/><circle cx="8.5" cy="17.8" r="2.2"/><circle cx="15.5" cy="8.8" r="2.2"/></svg></span></button>
   <nav id="wsTabs" class="wstabs"></nav>
   <button id="wsAdd" class="icon" title="Thêm workspace (GitLab / token khác)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button id="upd" class="upd" hidden></button>
   <button id="chip" class="conn-chip" title="Cài đặt workspace này"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span><svg viewBox="0 0 24 24" class="gear"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
 
@@ -644,6 +653,29 @@ const H = {
     if (atEnd) pre.scrollTop = pre.scrollHeight;
     if (d.kind === 'error' && $('#logp').hidden) { S.errs++; $('#logBadge').textContent = S.errs; $('#logBadge').hidden = false; }
   },
+  update(d) {
+    // Tự cập nhật: downloading -> ready (bấm = khởi động lại vào bản mới); available = chỉ báo + link tải
+    S.upd = d;
+    const b = $('#upd'), v = esc(d.version || '');
+    const ic = p => `<svg viewBox="0 0 24 24">${p}</svg>`;
+    $('#brand').title = `GitLab MR v${d.current} – bấm để kiểm tra cập nhật`;
+    b.className = 'upd'; b.disabled = false;
+    if (d.state === 'downloading') {
+      b.classList.add('dl'); b.disabled = true;
+      b.innerHTML = ic('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>') + `${d.progress || 0}%`;
+      b.title = `Đang tải bản v${d.version}…`;
+    } else if (d.state === 'ready') {
+      b.innerHTML = ic('<path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/>') + `v${v}`;
+      b.title = `Đã tải xong v${d.version} (đang dùng v${d.current}). Bấm để khởi động lại vào bản mới – không bấm thì bản mới được cài khi bạn đóng app.`;
+    } else if (d.state === 'available') {
+      b.innerHTML = ic('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>') + `v${v}`;
+      b.title = `Có bản mới v${d.version} (đang dùng v${d.current}). Bấm để mở trang tải.`;
+    }
+    b.hidden = !['downloading', 'ready', 'available'].includes(d.state);
+    if (d.state === 'latest') toast(`Đang dùng bản mới nhất (v${d.current})`);
+    if (d.state === 'checking') toast('Đang kiểm tra cập nhật…');
+    if (d.state === 'error') toast('Không kiểm tra được cập nhật: ' + (d.error || ''), true);
+  },
   error(d) {
     toast(d.text, true);
     if (!S.connected) { chip('Lỗi kết nối', 'err'); $('#conn').hidden = false; }
@@ -652,6 +684,14 @@ const H = {
 window.external?.receiveMessage?.(raw => { let d; try { d = JSON.parse(raw); } catch { return; } H[d?.type]?.(d); });
 
 /* ---------- UI events */
+$('#brand').onclick = () => send('checkUpdate');
+$('#upd').onclick = () => {
+  const u = S.upd; if (!u) return;
+  if (u.state === 'available') { send('open', { url: u.url }); return; }
+  if (u.state !== 'ready') return;
+  if (S.busy) { toast('Đang chạy – đợi xong hoặc bấm Dừng rồi cập nhật', true); return; }
+  send('applyUpdate');
+};
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
 document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });

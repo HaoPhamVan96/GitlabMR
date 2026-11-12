@@ -22,6 +22,10 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
+- **Tự cập nhật** (Windows, bản cài bằng `GitLabMR-win-Setup.exe`): app tự kiểm tra GitHub Releases lúc mở và mỗi 6 giờ,
+  tải ngầm bản mới. Khi tải xong, header hiện nút **↻ vX.Y.Z**: bấm vào thì app khởi động lại vào bản mới; không bấm thì bản mới được cài khi đóng app
+  (nếu còn cửa sổ GitLab MR khác đang mở thì đợi lần đóng sau, không đóng ngang cửa sổ đang chạy).
+  macOS / exe chạy trực tiếp: chỉ báo có bản mới, bấm để mở trang tải. Bấm logo để kiểm tra ngay.
 
 ## Tải bản build
 
@@ -29,7 +33,8 @@ Vào tab **Actions** (artifact của mỗi lần build) hoặc **Releases** (khi
 
 | File | Máy |
 |---|---|
-| `GitLabMR-win-x64.zip` | Windows 10/11 x64 (cần Edge WebView2 Runtime – Win 11 có sẵn) |
+| `GitLabMR-win-Setup.exe` | **Windows 10/11 x64 – nên dùng.** Cài vào `%LOCALAPPDATA%\GitLabMR` (không cần admin), tạo shortcut Start Menu + Desktop, tự cập nhật, tự cài WebView2 nếu thiếu. Gỡ trong *Settings → Apps* |
+| `GitLabMR-win-Portable.zip` | Windows, không cần cài: giải nén chạy `GitLabMR.exe` (vẫn tự cập nhật) |
 | `GitLabMR-osx-arm64.zip` | Mac Apple Silicon (M1/M2/M3…) |
 | `GitLabMR-osx-x64.zip` | Mac Intel |
 
@@ -45,7 +50,8 @@ Cần .NET SDK 8+.
 
 ```powershell
 ./build.ps1                 # Windows -> publish/win-x64/GitLabMR.exe
-./build.ps1 -Install        # build + cài vào %LOCALAPPDATA%\Programs\GitLabMR, tạo shortcut Start Menu/Desktop
+./build.ps1 -Pack           # + gói Velopack ở publish/velopack (Setup.exe, Portable.zip, .nupkg, releases.win.json)
+./build.ps1 -Install        # bản dev: cài vào %LOCALAPPDATA%\Programs\GitLabMR (không tự cập nhật)
 ```
 
 ```bash
@@ -53,17 +59,22 @@ Cần .NET SDK 8+.
 ./build.sh osx-x64          # macOS Intel
 ```
 
-**Ghim taskbar:** chạy `./build.ps1 -Install` 1 lần, rồi Start → gõ "GitLab MR" → chuột phải → *Pin to taskbar*.
-Các lần `./build.ps1 -Install` sau chép đè đúng file đó (app đang mở thì file cũ được đổi tên `.old`),
-nên icon trên taskbar luôn mở bản mới nhất.
+**Ghim taskbar:** cài bằng `GitLabMR-win-Setup.exe`, rồi Start → gõ "GitLab MR" → chuột phải → *Pin to taskbar*.
+Shortcut trỏ vào launcher cố định của Velopack, nên sau mỗi lần tự cập nhật icon trên taskbar vẫn mở bản mới nhất.
+(Bản dev `./build.ps1 -Install` cũng giữ đường dẫn cố định, nhưng không tự cập nhật.)
 
 ## Phát hành
 
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+git tag v1.6.0 && git push origin v1.6.0
 ```
 
-GitHub Actions build Windows + macOS và tạo Release kèm file zip.
+GitHub Actions lấy version từ tag, build Windows (`vpk pack` → Setup.exe, Portable.zip, `.nupkg`, `releases.win.json`) + macOS (zip),
+rồi tạo Release và đặt là *latest*. App tự cập nhật bằng cách đọc
+`https://github.com/HaoPhamVan96/GitlabMR/releases/latest/download/releases.win.json`, không qua GitHub API nên không bị giới hạn số lần gọi theo IP.
+Vì vậy **release mới nhất phải luôn có đủ các file feed đó**: đừng tạo release tay không kèm file. Nếu cần bản nháp, tạo pre-release.
+
+Test cập nhật với feed khác: đặt biến môi trường `GITLABMR_UPDATE_URL` (URL hoặc thư mục chứa `releases.win.json`) rồi mở app.
 
 ## Cấu hình
 
@@ -81,5 +92,6 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/MrWorkflow.cs` | Luồng 1 project: check branch → compare → tạo/dùng lại MR → merge |
 | `GitLabMR/GitLabClient.cs` | GitLab REST API v4 |
 | `GitLabMR/GerritClient.cs` | Gerrit REST API (liệt kê project, tạo branch) |
+| `GitLabMR/Updater.cs` | Tự cập nhật (Velopack) / báo có bản mới |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |
 | `GitLabMR/ui.html` | Giao diện |

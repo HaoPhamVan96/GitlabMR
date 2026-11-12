@@ -9,12 +9,14 @@ RID="${1:-osx-arm64}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/publish/$RID"
 ZIP="$ROOT/publish/GitLabMR-$RID.zip"
-VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$ROOT/GitLabMR/GitLabMR.csproj")"
+# VERSION=1.6.0 ./build.sh  -> ép version (CI lấy từ tag); mặc định đọc trong csproj
+VERSION="${VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$ROOT/GitLabMR/GitLabMR.csproj")}"
+VERSION="${VERSION#v}"
 
 rm -rf "$OUT" "$ZIP"
 dotnet publish "$ROOT/GitLabMR/GitLabMR.csproj" -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-  -p:EnableCompressionInSingleFile=true -p:DebugType=none -o "$OUT/bin"
+  -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version="$VERSION" -o "$OUT/bin"
 
 if [[ "$RID" == osx-* ]]; then
   APP="$OUT/GitLabMR.app"

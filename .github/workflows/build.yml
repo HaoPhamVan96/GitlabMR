@@ -18,13 +18,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Publish win-x64
+      - name: Publish win-x64 + gói Velopack (Setup.exe, feed tự cập nhật)
         shell: pwsh
-        run: ./build.ps1 -Runtime win-x64
+        run: |
+          # Tag v1.6.0 -> version 1.6.0; build thường lấy version trong csproj
+          $ver = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart('v') } else { "" }
+          if ($ver) { ./build.ps1 -Runtime win-x64 -Pack -Version $ver } else { ./build.ps1 -Runtime win-x64 -Pack }
       - uses: actions/upload-artifact@v4
         with:
           name: GitLabMR-win-x64
-          path: publish/GitLabMR-win-x64.zip
+          path: |
+            publish/velopack/GitLabMR-win-Setup.exe
+            publish/velopack/GitLabMR-win-Portable.zip
+            publish/velopack/*.nupkg
+            publish/velopack/releases.win.json
+            publish/velopack/assets.win.json
+            publish/velopack/RELEASES
 
   macos:
     runs-on: macos-latest
@@ -37,14 +46,16 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: Publish ${{ matrix.rid }}
-        run: chmod +x build.sh && ./build.sh ${{ matrix.rid }}
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then export VERSION="${{ github.ref_name }}"; fi
+          chmod +x build.sh && ./build.sh ${{ matrix.rid }}
       - uses: actions/upload-artifact@v4
         with:
           name: GitLabMR-${{ matrix.rid }}
           path: publish/GitLabMR-${{ matrix.rid }}.zip
 
   release:
-    # Push tag dạng v1.0.0 -> tạo GitHub Release kèm file zip cho Windows + macOS
+    # Push tag dạng v1.6.0 -> tạo GitHub Release: Setup.exe + feed Velopack (Windows) và zip macOS
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [windows, macos]
     runs-on: ubuntu-latest
@@ -53,7 +64,14 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Kiểm tra đủ file feed tự cập nhật
+        run: |
+          ls -la dist
+          test -f dist/releases.win.json && test -f dist/GitLabMR-win-Setup.exe && ls dist/*-full.nupkg
+      # Release mới nhất phải chứa releases.win.json + .nupkg: app đọc qua
+      # https://github.com/<repo>/releases/latest/download/releases.win.json để tự cập nhật
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: dist/*
+          make_latest: true
           generate_release_notes: true

@@ -92,10 +92,14 @@ public sealed class AppHost
     private Workspace _ws;
     private CancellationTokenSource? _cts;
     private volatile bool _ready;
+    private readonly Updater _updater;
+    private readonly CancellationTokenSource _life = new();
+    private bool _updaterStarted;
 
     public AppHost(PhotinoWindow window)
     {
         _window = window;
+        _updater = new Updater(Send);
         _ws = _cfg.Workspaces.First(w => w.Id == _cfg.ActiveWorkspace);
     }
 
@@ -104,9 +108,11 @@ public sealed class AppHost
 
     public void Shutdown()
     {
+        _life.Cancel();
         _cts?.Cancel();
         TrySave();
         foreach (var s in _states.Values) s.Client?.Dispose();
+        _updater.ApplyOnExit();
     }
 
     // ================================================================ messaging
@@ -137,7 +143,17 @@ public sealed class AppHost
                 case "ready":
                     _ready = true;
                     SendInit();
+                    _updater.Resend();
+                    if (!_updaterStarted) { _updaterStarted = true; _updater.Start(_life.Token); }
                     await SwitchAsync(_ws.Id);
+                    break;
+                case "checkUpdate":
+                    await _updater.CheckAsync(manual: true);
+                    break;
+                case "applyUpdate":
+                    if (_cts != null) { Send(new { type = "error", text = "Đang chạy batch – bấm Dừng hoặc đợi xong rồi cập nhật." }); break; }
+                    TrySave();
+                    if (!_updater.ApplyAndRestart()) Platform.OpenUrl(Updater.RepoUrl + "/releases/latest");
                     break;
                 case "switch":
                     if (_cts == null) await SwitchAsync(Str(m, "id"));
