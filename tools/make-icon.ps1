@@ -1,4 +1,4 @@
-# Vẽ icon app (ô vuông bo góc màu indigo + biểu tượng merge 2 nhánh) bằng GDI+,
+﻿# Vẽ icon app (ô vuông bo góc màu indigo + biểu tượng merge 2 nhánh) bằng GDI+,
 # xuất GitLabMR/assets/icon.png (1024px) và icon.ico (16..256px, PNG-in-ICO).
 #   powershell -ExecutionPolicy Bypass -File tools/make-icon.ps1
 $ErrorActionPreference = "Stop"

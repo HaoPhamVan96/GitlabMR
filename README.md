@@ -45,12 +45,17 @@ Cần .NET SDK 8+.
 
 ```powershell
 ./build.ps1                 # Windows -> publish/win-x64/GitLabMR.exe
+./build.ps1 -Install        # build + cài vào %LOCALAPPDATA%\Programs\GitLabMR, tạo shortcut Start Menu/Desktop
 ```
 
 ```bash
 ./build.sh                  # macOS Apple Silicon -> publish/osx-arm64/GitLabMR.app
 ./build.sh osx-x64          # macOS Intel
 ```
+
+**Ghim taskbar:** chạy `./build.ps1 -Install` 1 lần, rồi Start → gõ "GitLab MR" → chuột phải → *Pin to taskbar*.
+Các lần `./build.ps1 -Install` sau chép đè đúng file đó (app đang mở thì file cũ được đổi tên `.old`),
+nên icon trên taskbar luôn mở bản mới nhất.
 
 ## Phát hành
 
