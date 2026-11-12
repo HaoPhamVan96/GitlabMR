@@ -52,6 +52,8 @@ public sealed class AppConfig
     public bool AutoMerge { get; set; } = true;
     public bool RemoveSource { get; set; }
     public bool Squash { get; set; }
+    /// <summary>Cache danh sách project/branch cũ hơn số giờ này thì mở app tự làm mới 1 lần (0 = không bao giờ, chỉ bấm ⟳).</summary>
+    public int CacheMaxAgeHours { get; set; } = 12;
 
     // ---- Trường của bản cũ (1 GitLab duy nhất) – chỉ đọc để chuyển sang Workspace, không ghi lại nữa
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LastProject { get; set; }

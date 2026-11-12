@@ -20,6 +20,7 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - **Tạo branch hàng loạt** (chế độ **Branch** trên thanh): nhập branch gốc (vd `prod`) và tên mới (vd `feature/jwt`) → tạo cho mọi repo đã tick; repo thiếu branch gốc hoặc đã có branch đó thì bỏ qua.
 - **Gerrit** (chọn loại workspace = Gerrit): đăng nhập username + HTTP password, nhập link prefix (vd `https://review.company.com/peoplex/api/`) hoặc link clone từng project; chỉ hỗ trợ **tạo branch**, chế độ MR bị khoá.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
+- **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
 
 ## Tải bản build

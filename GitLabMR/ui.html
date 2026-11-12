@@ -97,7 +97,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .conn-chip:hover{border-color:var(--faint)}
 .conn-chip b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
-.dot.ok{background:var(--ok)} .dot.err{background:var(--err)} .dot.wait{background:var(--warn);animation:pulse 1s infinite}
+.dot.ok{background:var(--ok)} .dot.cache{background:var(--faint);box-shadow:0 0 0 2px var(--line2)} .dot.err{background:var(--err)} .dot.wait{background:var(--warn);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.35}}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
@@ -418,6 +418,16 @@ function toast(text, err) {
   const t = $('#toast'); t.textContent = text; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, err ? 5000 : 2500);
 }
+function ago(iso) {
+  const t = Date.parse(iso || ''); if (!t) return '';
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return m < 1 ? 'vừa xong' : m < 60 ? `${m} phút trước` : m < 1440 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`;
+}
+function fmtTime(iso) {
+  const t = new Date(iso || ''); if (isNaN(t)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${p(t.getHours())}:${p(t.getMinutes())} ${p(t.getDate())}/${p(t.getMonth() + 1)}`;
+}
 function chip(text, dot, user = '') {
   $('#chipText').textContent = text; $('#dot').className = 'dot ' + dot; $('#chipUser').textContent = user;
 }
@@ -603,8 +613,10 @@ const H = {
     S.sel = new Set(d.projects.filter(p => p.selected).map(p => p.id));
     $('#token').value = ''; tokenHint();
     S.tab = d.projects.some(p => p.fav) ? 'fav' : 'all';
-    chip(`${d.projects.length} project`, 'ok', '@' + d.user);
-    $('#chip').title = `${d.host} — bấm để cài đặt workspace`;
+    // Danh sách từ cache: chấm xám + tuổi cache; vừa tải từ server: chấm xanh
+    const age = ago(d.loadedAt);
+    chip(`${d.projects.length} project`, d.fromCache ? 'cache' : 'ok', '@' + d.user + (d.fromCache && age ? ` · ${age}` : ''));
+    $('#chip').title = `${d.host} — ${d.fromCache ? `danh sách từ cache (tải lúc ${fmtTime(d.loadedAt)}), bấm ⟳ ở góc danh sách để tải lại` : 'vừa tải từ server'}. Bấm để cài đặt workspace.`;
     $('#conn').hidden = true; $('#filter').value = '';
     render(); updateMr();
   },
@@ -614,6 +626,7 @@ const H = {
   remoteBranches(d) {
     S.remote = d.items || []; S.remoteTotal = d.total || 0; fillBranches();
     const b = $('#btnBranches');
+    b.title = `Tải lại branch gợi ý (của các repo đang tick) — lần tải trước: ${ago(d.at) || '?'}, ${S.remote.length} branch / ${S.remoteTotal} project`;
     if (b.classList.contains('spinning')) toast(`Đã tải ${S.remote.length} branch từ ${S.remoteTotal} project`);
     b.classList.remove('spinning');
   },

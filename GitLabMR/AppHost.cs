@@ -22,8 +22,67 @@ public sealed class AppHost
         public List<GlProject> Ordered = new();
         public string Host = "", User = "";
         public int Hidden;
-        public bool IsConnected;
-        public object? Branches;   // payload "remoteBranches" gần nhất
+        public bool IsConnected;        // đã có danh sách project (từ server hoặc từ cache)
+        public bool FromCache;          // danh sách đang hiện lấy từ cache, chưa gọi server trong phiên này
+        public DateTime LoadedAt;       // lúc danh sách project được tải từ server
+        public BranchList? Branches;    // branch gợi ý gần nhất
+    }
+
+    private static object BranchesPayload(BranchList b) => new
+    {
+        type = "remoteBranches",
+        total = b.Total,
+        at = b.At,
+        items = b.Items.Select(x => new { name = x.Name, count = x.Count }),
+    };
+
+    /// <summary>Nạp danh sách project + branch từ file cache vào state (không gọi server).</summary>
+    private static bool TryLoadCache(Workspace ws, WsState st)
+    {
+        var c = WsCache.Load(ws.Id);
+        if (c == null || c.Projects.Count == 0) return false;
+        st.Ordered = c.Projects.Select(p => new GlProject
+        {
+            Id = p.Id, Name = p.Name, PathWithNamespace = p.Path, WebUrl = p.WebUrl, DefaultBranch = p.DefaultBranch,
+        }).ToList();
+        st.Projects = st.Ordered.ToDictionary(p => p.Id);
+        st.Host = c.Host;
+        st.User = c.User;
+        st.Hidden = c.Hidden;
+        st.Branches = c.Branches;
+        st.LoadedAt = c.SavedAt;
+        st.IsConnected = true;
+        st.FromCache = true;
+        return true;
+    }
+
+    private static void SaveCache(Workspace ws, WsState st) => new WsCache
+    {
+        SavedAt = st.LoadedAt,
+        Host = st.Host,
+        User = st.User,
+        Hidden = st.Hidden,
+        Projects = st.Ordered.Select(p => new CachedProject
+        {
+            Id = p.Id, Name = p.Name, Path = p.PathWithNamespace, WebUrl = p.WebUrl, DefaultBranch = p.DefaultBranch,
+        }).ToList(),
+        Branches = st.Branches,
+    }.Save(ws.Id);
+
+    /// <summary>Client của workspace; nếu đang hiện từ cache thì tạo client từ token đã lưu (không gọi server).</summary>
+    private IBranchApi Api(Workspace ws, WsState st)
+    {
+        if (st.Client != null) return st.Client;
+        var token = AppConfig.GetToken(ws) ?? throw new GitLabException("Chưa có token cho workspace này — mở ⚙ để nhập.");
+        var first = ws.Sources.FirstOrDefault();
+        if (ws.Kind == "gerrit")
+        {
+            if (!GerritRef.TryParse(first, out var g, out var err)) throw new GitLabException(err);
+            var user = ws.Username ?? g!.User ?? "";
+            return EnsureClient(st, $"gerrit|{g!.BaseUrl}|{user}|{token}|{ws.IgnoreSsl}", () => new GerritClient(g.BaseUrl, user, token, ws.IgnoreSsl));
+        }
+        if (!ProjectRef.TryParse(first, out var r, out var err2)) throw new GitLabException(err2);
+        return EnsureClient(st, $"gitlab|{r!.BaseUrl}|{token}|{ws.IgnoreSsl}", () => new GitLabClient(r.BaseUrl, token, ws.IgnoreSsl));
     }
 
     private readonly PhotinoWindow _window;
@@ -245,12 +304,23 @@ public sealed class AppHost
         });
 
         var st = St;
+        if (!st.IsConnected) TryLoadCache(_ws, st);  // mở app / tab lần đầu trong phiên: lấy từ cache
+        var canConnect = _ws.Token != null && _ws.Sources.Count > 0;
+
         if (st.IsConnected)
         {
-            Send(BuildConnected(_ws, st));         // đã load rồi -> hiện ngay, không gọi API
-            if (st.Branches != null) Send(st.Branches);
+            Send(BuildConnected(_ws, st));           // hiện ngay, không gọi server
+            if (st.Branches != null) Send(BranchesPayload(st.Branches));
+
+            // Cache quá cũ (mặc định 12 giờ) -> tự làm mới 1 lần
+            var maxAge = _cfg.CacheMaxAgeHours;
+            if (canConnect && st.FromCache && maxAge > 0 && DateTime.Now - st.LoadedAt > TimeSpan.FromHours(maxAge))
+            {
+                Log($"[{_ws.Name}] Cache đã {(int)(DateTime.Now - st.LoadedAt).TotalHours} giờ, đang làm mới…", LogKind.Info);
+                await GuardAsync(ct => ConnectAsync(_ws.Kind, _ws.Name, _ws.Username ?? "", string.Join('\n', _ws.Sources), "", _ws.IgnoreSsl, ct));
+            }
         }
-        else if (_ws.Token != null && _ws.Sources.Count > 0)
+        else if (canConnect)
         {
             await GuardAsync(ct => ConnectAsync(_ws.Kind, _ws.Name, _ws.Username ?? "", string.Join('\n', _ws.Sources), "", _ws.IgnoreSsl, ct));
         }
@@ -271,6 +341,7 @@ public sealed class AppHost
         if (ws == null) return;
         _cfg.Workspaces.Remove(ws);
         if (_states.Remove(ws.Id, out var st)) st.Client?.Dispose();
+        WsCache.Delete(ws.Id);
         if (_cfg.Workspaces.Count == 0) _cfg.Workspaces.Add(new Workspace { Name = "Workspace 1" });
         Log($"Đã xoá workspace '{ws.Name}'", LogKind.Warn);
         await SwitchAsync(_ws.Id == id ? _cfg.Workspaces[0].Id : _ws.Id);
@@ -325,14 +396,18 @@ public sealed class AppHost
         st.User = result.User;
         st.Hidden = result.Hidden;
         st.IsConnected = true;
-        st.Branches = null;
+        st.FromCache = false;
+        st.LoadedAt = DateTime.Now;
+        SaveCache(ws, st);
         SendWsList();
         Send(BuildConnected(ws, st));
+        if (st.Branches != null) Send(BranchesPayload(st.Branches));
         Log($"[{ws.Name}] @{result.User} · {projects.Count} project" + (result.Hidden > 0 ? $" (ẩn {result.Hidden})" : ""), LogKind.Success);
 
-        // Tải luôn branch của các project đang tick để gợi ý (chưa tick gì thì lấy tất cả)
+        // Branch gợi ý: chỉ tải cho repo đang tick; chưa tick gì thì KHÔNG tải (bấm ⟳ khi cần)
         var ticked = ws.Selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        await LoadBranchesAsync(projects.Where(p => ticked.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList(), ct);
+        var tickedIds = projects.Where(p => ticked.Contains(p.PathWithNamespace)).Select(p => p.Id).ToList();
+        if (tickedIds.Count > 0) await LoadBranchesAsync(tickedIds, ct);
     }
 
     private sealed record ConnectResult(List<GlProject> Projects, int Hidden, string Host, string User, string Login, string DefaultName);
@@ -443,6 +518,8 @@ public sealed class AppHost
             host = st.Host,
             user = st.User,
             hidden = st.Hidden,
+            fromCache = st.FromCache,
+            loadedAt = st.LoadedAt,
             projects = st.Ordered.Select(p =>
             {
                 var rel = p.PathWithNamespace[prefix.Length..];
@@ -503,8 +580,8 @@ public sealed class AppHost
     private async Task LoadBranchesAsync(List<long> ids, CancellationToken ct)
     {
         var st = St;
-        if (st.Client == null || st.Projects.Count == 0) return;
-        var gl = st.Client;
+        if (st.Projects.Count == 0) return;
+        var gl = Api(_ws, st);
         var list = ids.Where(st.Projects.ContainsKey).Select(id => st.Projects[id]).ToList();
         if (list.Count == 0) list = st.Projects.Values.ToList();
 
@@ -529,22 +606,23 @@ public sealed class AppHost
             }
         }));
 
-        st.Branches = new
+        st.Branches = new BranchList
         {
-            type = "remoteBranches",
-            total = list.Count,
-            items = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(kv => new { name = kv.Key, count = kv.Value }).ToList(),
+            Total = list.Count,
+            At = DateTime.Now,
+            Items = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(kv => new BranchCount { Name = kv.Key, Count = kv.Value }).ToList(),
         };
-        Send(st.Branches);
+        SaveCache(_ws, st);
+        Send(BranchesPayload(st.Branches));
         Log($"Đã tải {counts.Count} branch từ {list.Count} project", LogKind.Info);
     }
 
     private async Task RunBatchAsync(JsonNode m, CancellationToken ct)
     {
         var st = St;
-        if (st.Client == null || !st.IsConnected) throw new GitLabException("Kết nối trước đã.");
-        var gl = st.Client;
+        if (!st.IsConnected) throw new GitLabException("Kết nối trước đã.");
+        var gl = Api(_ws, st);
         ApplyOptions(m);
 
         var dryRun = Bool(m, "dryRun");
