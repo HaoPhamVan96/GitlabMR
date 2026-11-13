@@ -8,7 +8,7 @@ using Photino.NET;
 namespace GitLabMR;
 
 /// <summary>Cầu nối giữa ui.html (JS) và logic GitLab. Message JSON 2 chiều qua Photino.</summary>
-public sealed class AppHost
+public sealed partial class AppHost
 {
     private const int MaxParallel = 4;
     private static readonly JsonSerializerOptions Js = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -26,6 +26,7 @@ public sealed class AppHost
         public bool FromCache;          // danh sách đang hiện lấy từ cache, chưa gọi server trong phiên này
         public DateTime LoadedAt;       // lúc danh sách project được tải từ server
         public BranchList? Branches;    // branch gợi ý gần nhất
+        public Dictionary<string, (GlProject Project, GerritClient.ChangeInfo Change)> Changes = new(); // Gerrit: change đang mở đã tải
     }
 
     private static object BranchesPayload(BranchList b) => new
@@ -169,6 +170,15 @@ public sealed class AppHost
                     break;
                 case "run":
                     await GuardAsync(ct => RunBatchAsync(m, ct));
+                    break;
+                case "loadChanges":
+                    var cids = Ids(m);
+                    var cbranch = Str(m, "branch");
+                    await GuardAsync(ct => LoadChangesAsync(cids, cbranch, ct));
+                    break;
+                case "submitChanges":
+                    var keys = m["keys"]?.AsArray().Select(x => (string?)x ?? "").Where(x => x.Length > 0).ToList() ?? new();
+                    await GuardAsync(ct => SubmitChangesAsync(keys, ct));
                     break;
                 case "loadBranches":
                     var ids = Ids(m);
@@ -644,7 +654,7 @@ public sealed class AppHost
         var dryRun = Bool(m, "dryRun");
         var branchMode = Str(m, "mode") == "branch";
         var glab = gl as GitLabClient; // MR chỉ có trên GitLab
-        if (!branchMode && glab == null) throw new GitLabException("Workspace Gerrit chỉ hỗ trợ tạo branch (chế độ Branch).");
+        if (!branchMode && glab == null) throw new GitLabException("Gerrit: chế độ MR dùng nút Tải change / Submit.");
         string source, target;
         if (branchMode)
         {

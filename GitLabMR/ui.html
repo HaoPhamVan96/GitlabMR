@@ -168,6 +168,17 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .spin{width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rot .7s linear infinite;flex:none}
 @keyframes rot{to{transform:rotate(360deg)}}
 .empty{height:100%;display:grid;place-items:center;color:var(--faint);text-align:center;padding:30px}
+/* Gerrit: change đang mở lồng dưới repo */
+.crow{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px 0 44px;cursor:pointer;font-size:12.5px;position:relative}
+.crow::before{content:"";position:absolute;left:28px;top:0;bottom:0;border-left:1px solid var(--line)}
+.crow:hover{background:var(--line2)}
+.crow .num{font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--accent);font-weight:600;flex:none}
+.crow .subj{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crow .who{color:var(--faint);font-size:11.5px;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;flex:none}
+.lbl{font:600 10.5px/1 "Cascadia Mono",Consolas,monospace;padding:3px 5px;border-radius:4px;background:var(--mute-bg);color:var(--mute);flex:none;white-space:nowrap}
+.lbl.pos{background:var(--ok-bg);color:var(--ok)} .lbl.neg{background:var(--err-bg);color:var(--err)}
+.crow .st{max-width:40%}
+@media (max-width:660px){ .crow .who{display:none} }
 
 /* ---------- footer */
 .foot{display:flex;align-items:center;gap:10px;padding:10px 14px}
@@ -330,8 +341,14 @@ const inTab = p => S.tab === 'all' || p.fav;
 const tabProjects = () => S.projects.filter(inTab);
 const chosen = () => S.projects.filter(p => inTab(p) && S.sel.has(p.id));
 
-const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', BranchCreated: 'done', BranchExists: 'mute', Failed: 'err' };
-const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi' };
+const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', BranchCreated: 'done', BranchExists: 'mute', Failed: 'err', Submitted: 'done', Approved: 'warn' };
+const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi', Submitted: 'Đã submit', Approved: '+2, chưa submit' };
+// Gerrit + chế độ MR = duyệt change: tải change đang mở của repo đã tick, tick change rồi Submit (tự +2)
+const review = () => S.kind === 'gerrit' && S.mode === 'mr';
+S.changes = {}; S.cLoaded = new Set(); S.csel = new Set(); S.cst = {};
+function resetChanges() { S.changes = {}; S.cLoaded = new Set(); S.csel = new Set(); S.cst = {}; }
+const chosenChanges = () => tabProjects().flatMap(p => (S.changes[p.id] || []).filter(c => S.csel.has(c.key)));
+const allChanges = () => Object.values(S.changes).flat();
 // 2 chế độ dùng chung 2 ô nhập: MR (Từ → Vào) và Branch (Từ branch gốc → Tên branch mới)
 const MODES = {
   mr: { tagA: 'Từ', tagB: 'Vào', phA: 'pre-uat', phB: 'uat' },
@@ -348,24 +365,32 @@ function applyMode() {
   $('#source').value = S.vals[S.mode].a; $('#target').value = S.vals[S.mode].b;
   $('#source').title = br ? 'Branch gốc để tách ra (vd: prod)' : 'Branch nguồn của MR';
   $('#target').title = br ? 'Tên branch mới sẽ tạo trên mọi repo đã tick' : 'Branch đích của MR';
-  for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts']) $(id).hidden = br;
+  const rv = review();
+  for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts']) $(id).hidden = br || rv;
   $('#arrow').hidden = !br;
+  $('#source').parentElement.hidden = rv;   // duyệt change chỉ cần branch đích (tuỳ chọn)
+  if (rv) {
+    $('#target').placeholder = 'uat (trống = mọi branch)';
+    $('#target').title = 'Chỉ lấy change vào branch này. Để trống = mọi branch.';
+  }
   document.querySelector('.bar').classList.toggle('branch', br);
   document.querySelectorAll('#modeSeg button').forEach(b => {
     b.classList.toggle('on', b.dataset.mode === S.mode);
     if (b.dataset.mode === 'mr') {
-      b.disabled = S.busy || S.kind === 'gerrit';
-      b.title = S.kind === 'gerrit' ? 'Gerrit: chỉ hỗ trợ tạo branch' : 'Tạo / merge Merge Request';
+      b.disabled = S.busy;
+      b.title = S.kind === 'gerrit' ? 'Duyệt change đang mở: tự +2 rồi Submit' : 'Tạo / merge Merge Request';
     }
   });
-  if (br) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
+  $('#btnCheck').textContent = rv ? 'Tải change' : 'Kiểm tra';
+  $('#btnCheck').title = rv ? 'Tải change đang mở của các repo đã tick (không tick = mọi repo trong tab)' : 'Kiểm tra trước, chưa tạo gì';
+  if (br || rv) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
   runLabel();
 }
 function setMode(m) {
-  if (m === 'mr' && S.kind === 'gerrit') return toast('Gerrit chỉ hỗ trợ tạo branch', true);
   if (m === S.mode) return;
   syncVals(); S.mode = m; applyMode();
   $('#sum').innerHTML = ''; $('#pickReady').hidden = true;
+  render();
   saveOpts();
 }
 
@@ -389,7 +414,7 @@ const KINDS = {
   },
   gerrit: {
     title: 'Project Gerrit',
-    hint: 'Mỗi dòng 1 link — kết thúc bằng / là lấy mọi project bên dưới, còn lại là đúng project đó (dán link clone cũng được). Chỉ hỗ trợ tạo branch.',
+    hint: 'Mỗi dòng 1 link — kết thúc bằng / là lấy mọi project bên dưới, còn lại là đúng project đó (dán link clone cũng được). MR = +2 & Submit change đang mở, Branch = tạo branch.',
     ph: 'https://review.company.com/peoplex/api/\nhttps://review.company.com/a/peoplex/api/core-pr',
   },
 };
@@ -398,7 +423,6 @@ function applyKind() {
   $('#srcTitle').textContent = K.title; $('#srcHint').textContent = K.hint; $('#url').placeholder = K.ph;
   $('#gUser').hidden = !g;
   document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('on', b.dataset.kind === S.kind));
-  if (g && S.mode !== 'branch') { syncVals(); S.mode = 'branch'; }
   tokenHint(); applyMode();
 }
 function renderWsTabs() {
@@ -463,6 +487,13 @@ function flushSel() {
   if (S.connected) send('selection', { paths: S.projects.filter(p => S.sel.has(p.id)).map(p => p.path) });
 }
 function runLabel() {
+  if (review()) {
+    const k = chosenChanges().length;
+    $('#btnRun').textContent = 'Submit' + (k ? ` (${k})` : '');
+    $('#btnRun').title = 'Code-Review +2 rồi Submit các change đã tick';
+    return;
+  }
+  $('#btnRun').title = '';
   const n = chosen().length;
   const label = S.mode === 'branch' ? 'Tạo branch' : $('#merge').checked ? 'Tạo & merge' : 'Tạo MR';
   $('#btnRun').textContent = label + (n ? ` (${n})` : '');
@@ -480,10 +511,41 @@ function renderTabs() {
   $('#nFav').textContent = lbl(favs); $('#nAll').textContent = lbl(S.projects);
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
 }
+const lblHtml = (name, v) => v == null ? '' :
+  `<span class="lbl${v.startsWith('+') ? ' pos' : v.startsWith('-') ? ' neg' : ''}" title="${name} ${v}">${name === 'Code-Review' ? 'CR' : 'V'} ${v}</span>`;
+function changeHtml(c) {
+  const r = S.cst[c.key], on = S.csel.has(c.key);
+  const st = r ? (r.spin ? `<span class="st st-info"><i class="spin"></i><span>${esc(r.text)}</span></span>`
+      : `<span class="st st-${r.cls}" title="${esc(r.text)}"><span>${esc(r.text)}</span></span>`)
+    : `<span class="st st-${c.cls}" title="${esc(c.status)}"><span>${esc(c.status)}</span></span>`;
+  const tip = `#${c.number} ${c.subject}\n${c.owner} · ${c.branch} · ${c.size}${c.updated ? ' · cập nhật ' + fmtTime(c.updated.slice(0, 19).replace(' ', 'T') + 'Z') : ''}`;
+  return `<label class="crow" data-key="${esc(c.key)}" title="${esc(tip)}">` +
+    `<input type="checkbox" class="chk" ${on ? 'checked' : ''} ${S.busy ? 'disabled' : ''}>` +
+    `<span class="num">#${c.number}</span><span class="subj">${esc(c.subject)}</span>` +
+    (S.branchAll ? `<span class="lbl" title="Branch đích">${esc(c.branch)}</span>` : '') +
+    `<span class="who">${esc(c.owner)}</span>${lblHtml('Code-Review', c.cr)}${lblHtml('Verified', c.v)}${st}` +
+    `<a class="mr" href="#" data-url="${esc(c.url)}" title="Mở change trên Gerrit">${EXT}</a></label>`;
+}
+function changesHtml(p) {
+  if (!review() || !S.cLoaded.has(p.id)) return '';
+  const list = S.changes[p.id] || [];
+  return list.map(changeHtml).join('');
+}
 function rowHtml(p) {
   const s = S.st[p.id], on = S.sel.has(p.id);
   let badge = '';
-  if (s) badge = `<span class="st st-${s.cls}" title="${esc(s.text)}">${s.spin ? '<i class="spin"></i>' : ''}<span>${esc(s.text)}</span></span>`;
+  if (review()) {
+    if (S.cLoaded.has(p.id)) {
+      const n = (S.changes[p.id] || []).length;
+      badge = `<span class="st st-${n ? 'info' : 'mute'}" title="${n ? n + ' change đang mở' : 'Không có change đang mở'}"><span>${n ? n + ' change' : 'Không có change'}</span></span>`;
+    }
+    return `<label class="row" data-id="${p.id}" title="${esc(p.path)}">` +
+      `<input type="checkbox" class="chk" ${on ? 'checked' : ''} ${S.busy ? 'disabled' : ''}>` +
+      `<button class="fav${p.fav ? ' on' : ''}" data-fav="1" title="${p.fav ? 'Bỏ khỏi Favorite' : 'Thêm vào Favorite'}">${STAR}</button>` +
+      `<span class="name"><span class="ns">${esc(p.ns)}</span>${esc(p.name)}</span>${badge}` +
+      `<a class="mr" href="#" data-url="${esc(p.webUrl || '')}" title="Mở repo trên Gerrit">${EXT}</a></label>` + changesHtml(p);
+  }
+  if (s) badge =`<span class="st st-${s.cls}" title="${esc(s.text)}">${s.spin ? '<i class="spin"></i>' : ''}<span>${esc(s.text)}</span></span>`;
   const link = s?.url ? `<a class="mr" href="#" data-copy="${esc(s.url)}" title="Copy link MR">${COPY}</a><a class="mr" href="#" data-url="${esc(s.url)}" title="Mở MR">${EXT}</a>` : '';
   return `<label class="row" data-id="${p.id}" title="${esc(p.path)}${p.defaultBranch ? ' · default: ' + esc(p.defaultBranch) : ''}">` +
     `<input type="checkbox" class="chk" ${on ? 'checked' : ''} ${S.busy ? 'disabled' : ''}>` +
@@ -510,12 +572,19 @@ function counts() {
   runLabel();
 }
 /* ---------- MR links */
-function mrItems() { return S.projects.filter(p => S.st[p.id]?.url); }
+function mrItems() {
+  if (review()) {
+    const name = id => { const p = S.projects.find(x => x.id === id); return p ? p.ns + p.name : ''; };
+    return allChanges().filter(c => S.cst[c.key]?.outcome)
+      .map(c => ({ name: `${name(c.projectId)} #${c.number} ${c.subject}`, outcome: S.cst[c.key].outcome, url: c.url }));
+  }
+  return S.projects.filter(p => S.st[p.id]?.url).map(p => ({ name: p.ns + p.name, outcome: S.st[p.id].outcome, url: S.st[p.id].url }));
+}
 function mrText() {
   const items = mrItems();
   if (!items.length) return '';
-  const head = S.pair ? `MR ${S.pair}\n` : '';
-  return head + items.map(p => `- ${p.ns}${p.name} (${LABEL[S.st[p.id].outcome] || ''}): ${S.st[p.id].url}`).join('\n');
+  const head = S.pair ? `${review() ? '' : 'MR '}${S.pair}\n` : '';
+  return head + items.map(x => `- ${x.name} (${LABEL[x.outcome] || ''}): ${x.url}`).join('\n');
 }
 function updateMr() {
   const n = mrItems().length;
@@ -531,7 +600,13 @@ function showPanel(id) {
   return !p.hidden;
 }
 
+function updateChange(key) {
+  const el = [...document.querySelectorAll('.crow')].find(x => x.dataset.key === key);
+  const c = allChanges().find(x => x.key === key);
+  if (el && c) el.outerHTML = changeHtml(c);
+}
 function updateRow(id) {
+  if (review()) { render(); return; } // dòng repo kèm các dòng change bên dưới -> vẽ lại cả danh sách
   const el = document.querySelector(`.row[data-id="${id}"]`);
   const p = S.projects.find(x => x.id === id);
   if (el && p) el.outerHTML = rowHtml(p);
@@ -547,9 +622,34 @@ function connect() {
   send('connect', { kind: S.kind, name: $('#wsName').value.trim(), user: $('#gUser').value.trim(), urls,
     token: $('#token').value.trim(), ignoreSsl: $('#ssl').checked });
 }
+/* Gerrit: Tải change (dryRun) / Submit */
+function runReview(load) {
+  const o = opts();
+  if (load) {
+    // Có tick thì tải repo đã tick, không tick thì tải mọi repo trong tab đang xem
+    const list = chosen().length ? chosen() : tabProjects();
+    if (!list.length) return toast('Không có repo nào trong tab này', true);
+    S.branchAll = !o.target;
+    return send('loadChanges', { ids: list.map(p => p.id), branch: o.target });
+  }
+  const cs = chosenChanges();
+  if (!cs.length) return toast(S.cLoaded.size ? 'Chưa tick change nào' : 'Bấm "Tải change" trước', true);
+  const name = id => { const p = S.projects.find(x => x.id === id); return p ? p.ns + p.name : ''; };
+  S.pair = `Submit ${o.target ? '→ ' + o.target : ''}`.trim();
+  $('#mTitle').textContent = `+2 & Submit ${cs.length} change?`;
+  $('#mPair').textContent = o.target ? `→ ${o.target}` : 'Mọi branch';
+  $('#mList').innerHTML = cs.map(c => `<li>${esc(name(c.projectId))} <b>#${c.number}</b> ${esc(c.subject)}</li>`).join('');
+  $('#mWarn').textContent = `Mỗi change sẽ được Code-Review +2 bằng tài khoản ${$('#chipUser').textContent.split(' ')[0] || 'của bạn'} rồi Submit.`;
+  $('#mWarn').hidden = false;
+  $('#mYes').textContent = '+2 & Submit';
+  $('#modal').hidden = false; $('#mYes').focus();
+  $('#mYes').onclick = () => { $('#modal').hidden = true; send('submitChanges', { keys: cs.map(c => c.key) }); };
+}
 function run(dryRun) {
   if (S.busy) return;
   if (!S.connected) return toast('Kết nối trước đã', true);
+  if (review()) return runReview(dryRun);
+  $('#mWarn').textContent = 'Branch nguồn sẽ bị xoá sau khi merge.';
   const o = opts(), br = o.mode === 'branch';
   const a = br ? o.base : o.source, b = br ? o.name : o.target;
   if (!a || !b) return toast(br ? 'Nhập branch gốc (Từ) và tên branch mới (Tên)' : 'Nhập branch nguồn và đích', true);
@@ -573,15 +673,15 @@ function run(dryRun) {
 function setBusy(b) {
   S.busy = b;
   for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
-  document.querySelectorAll('#modeSeg button, #kindSeg button').forEach(x => x.disabled = b || (x.dataset.mode === 'mr' && S.kind === 'gerrit'));
+  document.querySelectorAll('#modeSeg button, #kindSeg button').forEach(x => x.disabled = b);
   $('#gUser').disabled = b;
   renderWsTabs();
   $('#btnStop').hidden = !b;
-  document.querySelectorAll('.row .chk').forEach(c => c.disabled = b);
+  document.querySelectorAll('.row .chk, .crow .chk').forEach(c => c.disabled = b);
   counts();
 }
 function showSummary(counts, dryRun) {
-  const order = ['Merged', 'Created', 'AutoMerge', 'BranchCreated', 'Ready', 'AlreadyOpen', 'BranchExists', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
+  const order = ['Submitted', 'Merged', 'Created', 'AutoMerge', 'BranchCreated', 'Ready', 'AlreadyOpen', 'BranchExists', 'Approved', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
   $('#sum').innerHTML = order.filter(k => counts[k]).map(k => `<span class="st st-${CLS[k]}">${counts[k]} ${LABEL[k]}</span>`).join('');
   $('#pickReady').hidden = !(dryRun && counts.Ready);
 }
@@ -600,6 +700,7 @@ const H = {
     // Chuyển sang workspace khác: nạp cấu hình của nó, xoá danh sách đang hiện
     S.wsActive = d.id; S.wsHasToken = !!d.hasToken;
     S.connected = false; S.projects = []; S.sel = new Set(); S.st = {}; S.remote = []; S.remoteTotal = 0; S.hidden = 0;
+    resetChanges();
     $('#wsName').value = d.name || ''; $('#url').value = (d.sources || []).join('\n'); $('#ssl').checked = !!d.ignoreSsl;
     $('#token').value = ''; tokenHint();
     S.vals = { mr: { a: d.source || '', b: d.target || '' }, branch: { a: d.branchBase || '', b: d.branchName || '' } };
@@ -618,6 +719,7 @@ const H = {
     if (d.wsId !== S.wsActive) return;
     S.connected = true; S.wsHasToken = true; S.projects = d.projects; S.hidden = d.hidden || 0;
     S.st = S.fresh || !S.stCache[d.wsId] ? (S.stCache[d.wsId] = {}) : S.stCache[d.wsId];
+    if (S.fresh) resetChanges(); // tải lại danh sách repo -> change cũ không còn đúng
     S.fresh = false;
     S.sel = new Set(d.projects.filter(p => p.selected).map(p => p.id));
     $('#token').value = ''; tokenHint();
@@ -645,6 +747,29 @@ const H = {
       : { cls: CLS[d.outcome] || 'mute', text: d.text, url: d.url, outcome: d.outcome };
     updateRow(d.id);
     if (d.state === 'done') updateMr();
+  },
+  changes(d) {
+    // Gerrit: change đang mở của các repo vừa tải; chọn sẵn change submit được / chỉ còn thiếu +2
+    for (const id of d.projectIds || []) { S.changes[id] = []; S.cLoaded.add(id); }
+    for (const c of d.items || []) {
+      (S.changes[c.projectId] ||= []).push(c);
+      delete S.cst[c.key];
+      if (c.pick) S.csel.add(c.key); else S.csel.delete(c.key);
+    }
+    S.branchAll = !d.branch;
+    const n = (d.items || []).length, k = (d.items || []).filter(c => c.pick).length;
+    $('#sum').innerHTML = n ? `<span class="st st-info">${n} change</span>` + (k ? `<span class="st st-ok">${k} đã chọn</span>` : '') : '';
+    toast(n ? `${n} change đang mở — đã chọn sẵn ${k} change submit được`
+      : d.branch ? `Không có change nào vào branch "${d.branch}" — xoá ô Vào để xem mọi branch` : 'Không có change đang mở', !n && !!d.branch);
+    render(); updateMr();
+  },
+  crow(d) {
+    S.cst[d.key] = d.state === 'wait' ? { cls: 'mute', text: 'Chờ…' }
+      : d.state === 'run' ? { text: '+2 & submit…', spin: true }
+      : { cls: CLS[d.outcome] || 'mute', text: d.text, outcome: d.outcome };
+    if (d.state === 'done' && d.outcome === 'Submitted') S.csel.delete(d.key);
+    updateChange(d.key);
+    if (d.state === 'done') { updateMr(); runLabel(); }
   },
   done(d) { showSummary(d.counts || {}, d.dryRun); },
   log(d) {
@@ -703,7 +828,7 @@ document.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => {
   if (S.kind === 'gerrit' && !$('#gUser').value) {
     const m = $('#url').value.match(/https?:\/\/([^@\/\s:]+)@/); if (m) $('#gUser').value = m[1];
   }
-  toast(S.kind === 'gerrit' ? 'Gerrit: nhập username + HTTP password, chỉ hỗ trợ tạo branch' : 'GitLab: nhập access token (scope api)');
+  toast(S.kind === 'gerrit' ? 'Gerrit: nhập username + HTTP password. MR = +2 & Submit change, Branch = tạo branch' : 'GitLab: nhập access token (scope api)');
 });
 $('#wsTabs').addEventListener('click', e => {
   const b = e.target.closest('.wstab'); if (!b || S.busy) return;
@@ -744,6 +869,8 @@ document.addEventListener('click', e => {
 $('#filter').addEventListener('input', render);
 $('#all').onchange = e => { for (const p of visible()) e.target.checked ? S.sel.add(p.id) : S.sel.delete(p.id); render(); saveSel(); };
 $('#rows').addEventListener('change', e => {
+  const cr = e.target.closest('.crow');
+  if (cr) { const k = cr.dataset.key; e.target.checked ? S.csel.add(k) : S.csel.delete(k); runLabel(); return; }
   const row = e.target.closest('.row'); if (!row) return;
   const id = +row.dataset.id; e.target.checked ? S.sel.add(id) : S.sel.delete(id); counts(); saveSel();
 });

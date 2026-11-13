@@ -18,7 +18,12 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - **Tạo MR** hoặc **Tạo & merge**: dùng lại MR đang mở nếu có, chờ GitLab check mergeable rồi merge;
   pipeline đang chạy thì có thể bật auto-merge. Không merge được thì ghi rõ lý do (conflict, chưa approve, draft…).
 - **Tạo branch hàng loạt** (chế độ **Branch** trên thanh): nhập branch gốc (vd `prod`) và tên mới (vd `feature/jwt`) → tạo cho mọi repo đã tick; repo thiếu branch gốc hoặc đã có branch đó thì bỏ qua.
-- **Gerrit** (chọn loại workspace = Gerrit): đăng nhập username + HTTP password, nhập link prefix (vd `https://review.company.com/peoplex/api/`) hoặc link clone từng project; chỉ hỗ trợ **tạo branch**, chế độ MR bị khoá.
+- **Gerrit** (chọn loại workspace = Gerrit): đăng nhập username + HTTP password, nhập link prefix (vd `https://review.company.com/peoplex/api/`) hoặc link clone từng project.
+  - Chế độ **Branch**: tạo branch hàng loạt như GitLab.
+  - Chế độ **MR**: tick repo (không tick = mọi repo trong tab) → nhập branch đích (vd `uat`, để trống = mọi branch) → **Tải change**. Change đang mở hiện dưới từng repo, kèm nhãn CR / Verified và trạng thái
+    (*Submit được*, *Cần +2*, *Thiếu Verified*, *Bị CR −2*, *Có CR −1*, *WIP*, *Conflict*). App chọn sẵn change submit được hoặc chỉ còn thiếu +2.
+    Bấm **Submit**: mỗi change được Code-Review +2 (nếu chưa có) rồi submit. Khác repo chạy song song, cùng repo chạy lần lượt.
+    Change nào không submit được thì báo rõ lý do Gerrit trả về (vẫn giữ +2). Cần quyền Code-Review +2 và Submit trên branch.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
@@ -91,7 +96,8 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/AppHost.cs` | Cầu nối JS ↔ C#: kết nối, load branch, chạy batch |
 | `GitLabMR/MrWorkflow.cs` | Luồng 1 project: check branch → compare → tạo/dùng lại MR → merge |
 | `GitLabMR/GitLabClient.cs` | GitLab REST API v4 |
-| `GitLabMR/GerritClient.cs` | Gerrit REST API (liệt kê project, tạo branch) |
+| `GitLabMR/GerritClient.cs` | Gerrit REST API (liệt kê project, tạo branch, change: tải / +2 / submit) |
+| `GitLabMR/GerritReview.cs` | Gerrit chế độ MR: tải change đang mở, +2 & submit hàng loạt |
 | `GitLabMR/Updater.cs` | Tự cập nhật (Velopack) / báo có bản mới |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |
 | `GitLabMR/ui.html` | Giao diện |

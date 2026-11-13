@@ -166,7 +166,86 @@ public sealed class GerritClient : IBranchApi
 
     public string ProjectUrl(string name) => $"{_baseUrl}/admin/repos/{Esc(name)}";
 
-    private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
+    // ================================================================ change (review + submit)
+    public sealed class LabelInfo
+    {
+        public JsonElement? Approved { get; set; }
+        public JsonElement? Rejected { get; set; }
+        public JsonElement? Recommended { get; set; }
+        public JsonElement? Disliked { get; set; }
+        public bool Blocking { get; set; }
+    }
+
+    public sealed class SubmitRequirement
+    {
+        public string? Name { get; set; }
+        public string? Status { get; set; }   // SATISFIED, UNSATISFIED, OVERRIDDEN, NOT_APPLICABLE, ERROR, FORCED
+    }
+
+    public sealed class ChangeInfo
+    {
+        [JsonPropertyName("_number")] public long Number { get; set; }
+        public string Project { get; set; } = "";
+        public string Branch { get; set; } = "";
+        public string Subject { get; set; } = "";
+        public string Status { get; set; } = "";
+        public Account? Owner { get; set; }
+        public string? Updated { get; set; }
+        public bool Submittable { get; set; }
+        public bool? Mergeable { get; set; }
+        [JsonPropertyName("work_in_progress")] public bool WorkInProgress { get; set; }
+        public int Insertions { get; set; }
+        public int Deletions { get; set; }
+        public Dictionary<string, LabelInfo>? Labels { get; set; }
+        [JsonPropertyName("submit_requirements")] public List<SubmitRequirement>? SubmitRequirements { get; set; }
+        [JsonPropertyName("_more_changes")] public bool MoreChanges { get; set; }
+    }
+
+    /// <summary>Id dùng trong URL API: "project~số change" (Gerrit 2.15+ đều hỗ trợ).</summary>
+    public static string ChangeId(string project, long number) => $"{Esc(project)}~{number}";
+
+    public string ChangeUrl(string project, long number) => $"{_baseUrl}/c/{project}/+/{number}";
+
+    /// <summary>Change đang mở của các project (gom nhiều project mỗi lần gọi), lọc theo branch đích nếu có.</summary>
+    public async Task<List<ChangeInfo>> GetOpenChangesAsync(IReadOnlyList<string> projects, string? branch, CancellationToken ct)
+    {
+        var all = new List<ChangeInfo>();
+        foreach (var chunk in projects.Chunk(15)) // giữ URL ngắn
+        {
+            var q = "status:open (" + string.Join(" OR ", chunk.Select(p => $"project:\"{p}\"")) + ")";
+            if (!string.IsNullOrWhiteSpace(branch)) q += $" branch:\"{branch.Trim()}\"";
+            for (var start = 0; start < 2000; start += 200)
+            {
+                var page = await SendAsync<List<ChangeInfo>>(HttpMethod.Get,
+                    $"changes/?q={Esc(q)}&n=200&S={start}&o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE", null, ct);
+                all.AddRange(page);
+                if (page.Count == 0 || !page[^1].MoreChanges) break;
+            }
+        }
+        return all;
+    }
+
+    public Task<ChangeInfo> GetChangeAsync(string project, long number, CancellationToken ct) =>
+        SendAsync<ChangeInfo>(HttpMethod.Get, $"changes/{ChangeId(project, number)}?o=LABELS&o=SUBMITTABLE", null, ct, ChangeHint);
+
+    /// <summary>Cho Code-Review +2 trên patchset hiện tại.</summary>
+    public Task<JsonElement> ApproveAsync(string project, long number, CancellationToken ct) =>
+        SendAsync<JsonElement>(HttpMethod.Post, $"changes/{ChangeId(project, number)}/revisions/current/review",
+            new Dictionary<string, object> { ["labels"] = new Dictionary<string, int> { ["Code-Review"] = 2 } }, ct, ChangeHint);
+
+    public Task<ChangeInfo> SubmitAsync(string project, long number, CancellationToken ct) =>
+        SendAsync<ChangeInfo>(HttpMethod.Post, $"changes/{ChangeId(project, number)}/submit", new Dictionary<string, object>(), ct, ChangeHint);
+
+    private static string? ChangeHint(HttpStatusCode code) => code switch
+    {
+        HttpStatusCode.Forbidden => "Không có quyền (cần quyền Code-Review +2 / Submit trên branch này).",
+        HttpStatusCode.Conflict => "Không submit được.",
+        HttpStatusCode.NotFound => "Không tìm thấy change (đã bị xoá hoặc không có quyền xem).",
+        _ => null,
+    };
+
+    private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct,
+        Func<HttpStatusCode, string?>? hints = null)
     {
         using var req = new HttpRequestMessage(method, path);
         if (body != null) req.Content = JsonContent.Create(body);
@@ -176,7 +255,7 @@ public sealed class GerritClient : IBranchApi
         {
             var detail = text.Trim();
             if (detail.Length > 200) detail = detail[..200] + "…";
-            var hint = res.StatusCode switch
+            var hint = hints?.Invoke(res.StatusCode) ?? res.StatusCode switch
             {
                 HttpStatusCode.Unauthorized => "Sai username hoặc HTTP password (Gerrit → Settings → HTTP Credentials).",
                 HttpStatusCode.Forbidden => "Không có quyền (cần quyền Create Reference trên project).",

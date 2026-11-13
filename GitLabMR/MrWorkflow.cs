@@ -4,11 +4,18 @@ namespace GitLabMR;
 
 public enum LogKind { Info, Success, Warn, Error }
 
-public enum MrOutcome { Ready, NoChanges, MissingBranch, AlreadyOpen, Created, Merged, AutoMerge, NotMerged, BranchCreated, BranchExists, Failed }
+public enum MrOutcome
+{
+    Ready, NoChanges, MissingBranch, AlreadyOpen, Created, Merged, AutoMerge, NotMerged, BranchCreated, BranchExists, Failed,
+    /// <summary>Gerrit: đã +2 và submit.</summary>
+    Submitted,
+    /// <summary>Gerrit: đã +2 nhưng chưa submit được (thiếu Verified, conflict…).</summary>
+    Approved,
+}
 
 public sealed record MrResult(MrOutcome Outcome, string Message, string? Url = null)
 {
-    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge or MrOutcome.BranchCreated;
+    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge or MrOutcome.BranchCreated or MrOutcome.Submitted;
 }
 
 /// <summary>Tạo branch hàng loạt: branch mới từ branch gốc, bỏ qua nếu đã có.</summary>
