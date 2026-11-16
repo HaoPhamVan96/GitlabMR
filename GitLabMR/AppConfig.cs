@@ -55,6 +55,11 @@ public sealed class AppConfig
     /// <summary>Cache danh sách project/branch cũ hơn số giờ này thì mở app tự làm mới 1 lần (0 = không bao giờ, chỉ bấm ⟳).</summary>
     public int CacheMaxAgeHours { get; set; } = 12;
 
+    /// <summary>Kích thước cửa sổ lần trước (0 = mặc định).</summary>
+    public int WindowWidth { get; set; }
+    public int WindowHeight { get; set; }
+    public bool WindowMaximized { get; set; }
+
     // ---- Trường của bản cũ (1 GitLab duy nhất) – chỉ đọc để chuyển sang Workspace, không ghi lại nữa
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LastProject { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Sources { get; set; }

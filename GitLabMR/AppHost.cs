@@ -107,6 +107,16 @@ public sealed partial class AppHost
     private WsState St => State(_ws);
     private WsState State(Workspace ws) => _states.TryGetValue(ws.Id, out var s) ? s : _states[ws.Id] = new WsState();
 
+    /// <summary>Ghi nhớ kích thước cửa sổ (lưu khi đóng app). Đang phóng to thì giữ kích thước thường trước đó.</summary>
+    public void RememberWindow(int width, int height, bool maximized)
+    {
+        if (width < 600 || height < 460) return;  // thu nhỏ xuống taskbar: bỏ qua
+        _cfg.WindowMaximized = maximized;
+        if (maximized) return;                   // phóng to: giữ kích thước thường trước đó
+        _cfg.WindowWidth = width;
+        _cfg.WindowHeight = height;
+    }
+
     public void Shutdown()
     {
         _life.Cancel();

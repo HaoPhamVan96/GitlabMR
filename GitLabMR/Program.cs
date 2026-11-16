@@ -20,11 +20,16 @@ internal static class Program
         using (var reader = new StreamReader(stream))
             html = reader.ReadToEnd();
 
+        // Mở lại đúng kích thước lần trước; mặc định đủ rộng cho tên branch dài
+        var saved = AppConfig.Load();
+        var width = saved.WindowWidth >= 600 ? Math.Min(saved.WindowWidth, 4000) : 900;
+        var height = saved.WindowHeight >= 460 ? Math.Min(saved.WindowHeight, 3000) : 640;
+
         var window = new PhotinoWindow()
             .SetTitle("GitLab MR")
             .SetUseOsDefaultSize(false)
-            .SetSize(760, 640)
-            .SetMinSize(560, 460)
+            .SetSize(width, height)
+            .SetMinSize(600, 460)
             .SetResizable(true)
             .SetContextMenuEnabled(true)
 #if !DEBUG
@@ -35,11 +40,19 @@ internal static class Program
         // Icon cửa sổ / taskbar (Windows cần file .ico trên đĩa; macOS lấy icon từ .app bundle)
         if (OperatingSystem.IsWindows() && ExtractIcon() is { } iconPath) window.SetIconFile(iconPath);
 
+        if (saved.WindowMaximized) window.SetMaximized(true);
+
         var host = new AppHost(window);
+        window.RegisterSizeChangedHandler((_, size) => host.RememberWindow(size.Width, size.Height, SafeMaximized(window)));
         window.RegisterWebMessageReceivedHandler((_, message) => host.OnMessage(message));
         window.LoadRawString(html);
         window.WaitForClose();
         host.Shutdown();
+    }
+
+    private static bool SafeMaximized(PhotinoWindow w)
+    {
+        try { return w.Maximized; } catch { return false; }
     }
 
     private static string? ExtractIcon()

@@ -11,6 +11,7 @@
   --info:#2d5ccc; --info-bg:#e8eefb; --mute:#6b7280; --mute-bg:#f0f1f4;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 2px 6px rgba(16,24,40,.06);
   --pop:0 8px 28px rgba(16,24,40,.16);
+  --hover:#e9ecfd; --selrow:#f5f6fe;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#16171b; --panel:#1e1f24; --line:#2d2f37; --line2:#25272d; --text:#e5e6ea; --muted:#979ca8; --faint:#6b707c;
@@ -18,6 +19,7 @@
   --ok:#4cc07e; --ok-bg:#1a3124; --warn:#e2a443; --warn-bg:#382c16; --err:#ef7067; --err-bg:#3b1f1f;
   --info:#82a3f4; --info-bg:#1e2840; --mute:#9399a5; --mute-bg:#272930;
   --shadow:none; --pop:0 10px 30px rgba(0,0,0,.5);
+  --hover:#2a2d4a; --selrow:#212339;
 }}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -138,6 +140,15 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .br .tag{position:absolute;left:9px;font-size:11px;font-weight:600;color:var(--faint);pointer-events:none;text-transform:uppercase;letter-spacing:.03em}
 .br .in{width:100%;padding-left:40px;font-weight:600;font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
 .sep{width:1px;height:20px;background:var(--line);margin:0 2px}
+.ac{position:absolute;top:calc(100% - 2px);z-index:25;max-height:320px;overflow-y:auto;padding:4px;box-shadow:var(--pop);overscroll-behavior:contain}
+.ac .it{display:flex;align-items:center;gap:10px;height:28px;padding:0 9px;border-radius:6px;cursor:pointer;
+  font:12.5px "Cascadia Mono",Consolas,monospace;white-space:nowrap}
+.ac .it .n{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ac .it mark{background:none;color:var(--accent);font-weight:700}
+.ac .it .h{margin-left:auto;padding-left:12px;font:11px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:var(--faint);flex:none}
+.ac .it.on{background:var(--accent-soft)}
+.ac .it.on .n{color:var(--accent)}
+.ac .more{padding:5px 9px;font-size:11px;color:var(--faint)}
 
 .pop{position:absolute;right:8px;top:calc(100% + 6px);width:330px;padding:12px;z-index:20;box-shadow:var(--pop);
   display:flex;flex-direction:column;gap:8px}
@@ -153,8 +164,10 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .count{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
 .rows{flex:1;overflow-y:auto;padding:4px 0}
 .rows::-webkit-scrollbar{width:10px} .rows::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid var(--panel)}
-.row{display:flex;align-items:center;gap:10px;height:32px;padding:0 12px;cursor:pointer}
-.row:hover{background:var(--line2)}
+.row{display:flex;align-items:center;gap:10px;height:32px;padding:0 12px;cursor:pointer;transition:background .08s}
+.row:has(> .chk:checked),.crow:has(> .chk:checked){background:var(--selrow)}
+.row:hover,.crow:hover,.row:has(> .chk:checked):hover,.crow:has(> .chk:checked):hover{background:var(--hover)}
+.row:hover .name{color:var(--accent)} .row:hover .name .ns{color:var(--muted)}
 .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .name .ns{color:var(--faint);font-weight:400}
 .st{display:inline-flex;align-items:center;gap:5px;max-width:52%;height:21px;padding:0 8px;border-radius:11px;font-size:11.5px;font-weight:600;
@@ -169,9 +182,8 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 @keyframes rot{to{transform:rotate(360deg)}}
 .empty{height:100%;display:grid;place-items:center;color:var(--faint);text-align:center;padding:30px}
 /* Gerrit: change đang mở lồng dưới repo */
-.crow{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px 0 44px;cursor:pointer;font-size:12.5px;position:relative}
+.crow{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px 0 44px;cursor:pointer;font-size:12.5px;position:relative;transition:background .08s}
 .crow::before{content:"";position:absolute;left:28px;top:0;bottom:0;border-left:1px solid var(--line)}
-.crow:hover{background:var(--line2)}
 .crow .num{font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:var(--accent);font-weight:600;flex:none}
 .crow .subj{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .crow .who{color:var(--faint);font-size:11.5px;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;flex:none}
@@ -256,11 +268,11 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
     <button data-mode="mr">MR</button>
     <button data-mode="branch">Branch</button>
   </div>
-  <div class="br"><span id="tagA" class="tag">Từ</span><input id="source" class="in" list="brList" placeholder="pre-uat" spellcheck="false"></div>
+  <div class="br"><span id="tagA" class="tag">Từ</span><input id="source" class="in" autocomplete="off" placeholder="pre-uat" spellcheck="false"></div>
   <button id="swap" class="icon" title="Đảo nguồn / đích"><svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg></button>
   <span id="arrow" class="arrow" hidden><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-  <div class="br"><span id="tagB" class="tag">Vào</span><input id="target" class="in" list="brList" placeholder="uat" spellcheck="false"></div>
-  <datalist id="brList"></datalist>
+  <div class="br"><span id="tagB" class="tag">Vào</span><input id="target" class="in" autocomplete="off" placeholder="uat" spellcheck="false"></div>
+  <div id="ac" class="card ac" hidden></div>
   <button id="btnBranches" class="icon" title="Tải lại branch từ GitLab (của các project đang chọn)"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
   <span id="sepMr" class="sep"></span>
   <label id="mergeSw" class="switch" title="Tạo xong merge luôn"><input id="merge" type="checkbox"><span class="tr"></span>Merge</label>
@@ -441,11 +453,104 @@ function renderWsTabs() {
   }).join('');
 }
 function fillList(id, items) { $(id).innerHTML = (items || []).map(x => `<option value="${esc(x)}">`).join(''); }
+/* ---------- gợi ý branch: tự vẽ thay <datalist> (datalist vài nghìn dòng làm WebView khựng mỗi lần gõ) */
+let AC_ALL = [];   // [{name, low, hint}] – dựng lại khi có branch mới
+const AC = { input: null, list: [], shown: 0, q: '', idx: -1, raf: 0, fresh: false }; // fresh: vừa mở, chưa gõ -> hiện đủ danh sách
+const AC_PAGE = 50; // vẽ dần: mỗi lần 50 dòng, cuộn tới đâu vẽ thêm tới đó
 function fillBranches() {
-  const seen = new Set(), html = [];
-  for (const b of S.remote) { seen.add(b.name); html.push(`<option value="${esc(b.name)}" label="${b.count}/${S.remoteTotal} project">`); }
-  for (const b of S.history) if (!seen.has(b)) html.push(`<option value="${esc(b)}" label="đã dùng">`);
-  $('#brList').innerHTML = html.join('');
+  const seen = new Set(), all = [];
+  const remote = new Map(S.remote.map(b => [b.name, b]));
+  // Đã dùng gần đây lên đầu, rồi tới branch thật theo số project có branch đó
+  for (const h of S.history) {
+    if (seen.has(h)) continue; seen.add(h);
+    const r = remote.get(h);
+    all.push({ name: h, low: h.toLowerCase(), hint: r ? `${r.count}/${S.remoteTotal} · đã dùng` : 'đã dùng' });
+  }
+  for (const b of S.remote) if (!seen.has(b.name)) { seen.add(b.name); all.push({ name: b.name, low: b.name.toLowerCase(), hint: `${b.count}/${S.remoteTotal} project` }); }
+  AC_ALL = all;
+  if (AC.input && !$('#ac').hidden) acRender();
+}
+const acEnabled = el => !(el.id === 'target' && S.mode === 'branch'); // ô "Tên" branch mới: không gợi ý
+function acOpen(el) { if (!acEnabled(el)) return acClose(); AC.input = el; AC.fresh = true; acRender(); }
+function acClose() { AC.input = null; AC.idx = -1; $('#ac').hidden = true; }
+function acMatch(q) {
+  if (!q) return AC_ALL;
+  // Ưu tiên: đúng tên > khớp đầu tên > khớp đầu 1 đoạn (sau / - _) > chứa ở giữa
+  const exact = [], prefix = [], seg = [], has = [];
+  for (const b of AC_ALL) {
+    const i = b.low.indexOf(q);
+    if (i < 0) continue;
+    (b.low === q ? exact : i === 0 ? prefix : '/-_'.includes(b.low[i - 1]) ? seg : has).push(b);
+  }
+  return exact.concat(prefix, seg, has);
+}
+function acItemHtml(b, i) {
+  const q = AC.q;
+  let name = esc(b.name);
+  if (q) {
+    const k = b.low.indexOf(q);
+    name = esc(b.name.slice(0, k)) + '<mark>' + esc(b.name.slice(k, k + q.length)) + '</mark>' + esc(b.name.slice(k + q.length));
+  }
+  return `<div class="it${i === AC.idx ? ' on' : ''}" data-i="${i}" title="${esc(b.name)}"><span class="n">${name}</span><span class="h">${esc(b.hint)}</span></div>`;
+}
+function acMoreHtml() {
+  const left = AC.list.length - AC.shown;
+  return left > 0 ? `<div class="more">Cuộn để xem thêm · còn ${left} branch</div>` : '';
+}
+/** Vẽ thêm 1 trang (hoặc tới dòng `upTo`) vào cuối danh sách đang hiện. */
+function acAppend(upTo = 0) {
+  const box = $('#ac');
+  const target = Math.min(AC.list.length, Math.max(AC.shown + AC_PAGE, upTo + 1));
+  if (target <= AC.shown) return;
+  const html = [];
+  for (let i = AC.shown; i < target; i++) html.push(acItemHtml(AC.list[i], i));
+  AC.shown = target;
+  box.querySelector('.more')?.remove();
+  box.insertAdjacentHTML('beforeend', html.join('') + acMoreHtml());
+}
+function acRender() {
+  const el = AC.input, box = $('#ac'); if (!el) return;
+  const q = AC.fresh ? '' : el.value.trim().toLowerCase();
+  const cur = el.value.trim();
+  AC.q = q;
+  AC.list = acMatch(q);
+  AC.idx = q && AC.list.length && AC.list[0].low.startsWith(q) ? 0 : AC.fresh ? AC.list.findIndex(b => b.name === cur) : -1;
+  if (!AC.list.length || (AC.list.length === 1 && AC.list[0].low === q)) { box.hidden = true; return; }
+  AC.shown = 0;
+  box.innerHTML = '';
+  acAppend(AC.idx); // trang đầu (đủ tới dòng đang chọn nếu nằm sâu)
+  // Đặt ngay dưới ô đang nhập, rộng ít nhất 460px để thấy tên dài
+  const bar = document.querySelector('.bar'), wrap = el.parentElement;
+  const w = Math.min(Math.max(wrap.offsetWidth, 460), bar.clientWidth - 16);
+  box.style.left = Math.max(8, Math.min(wrap.offsetLeft, bar.clientWidth - w - 8)) + 'px';
+  box.style.width = w + 'px';
+  box.hidden = false; box.scrollTop = 0;
+  if (AC.idx > 0) box.querySelector(`.it[data-i="${AC.idx}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+function acHighlight() {
+  $('#ac').querySelector('.it.on')?.classList.remove('on');
+  $('#ac').querySelector(`.it[data-i="${AC.idx}"]`)?.classList.add('on');
+}
+function acMove(d) {
+  if ($('#ac').hidden || !AC.list.length) return;
+  let i = AC.idx + d;
+  if (i >= AC.shown && AC.shown < AC.list.length) acAppend(i);   // xuống cuối -> vẽ thêm trang
+  if (i >= AC.shown) i = 0;                                       // hết danh sách -> quay lên đầu
+  if (i < 0) i = AC.shown - 1;
+  AC.idx = i;
+  acHighlight();
+  $('#ac').querySelector(`.it[data-i="${AC.idx}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+function acPick(i) {
+  const el = AC.input, b = AC.list[i]; if (!el || !b) return;
+  el.value = b.name; el.title = b.name; saveOpts();
+  acClose();
+  nextField(el);
+}
+// Xong ô "Từ" thì nhảy sang ô "Vào"; xong ô cuối thì thôi focus
+function nextField(el) {
+  if (el.id === 'source' && !$('#target').parentElement.hidden) { $('#target').focus(); $('#target').select(); }
+  else el.blur();
 }
 let toastTimer;
 function toast(text, err) {
@@ -869,6 +974,41 @@ $('#url').addEventListener('input', tokenHint);
 $('#ssl').onchange = saveOpts;
 $('#swap').onclick = () => { const s = $('#source').value; $('#source').value = $('#target').value; $('#target').value = s; saveOpts(); };
 for (const id of ['#source', '#target', '#title', '#desc']) $(id).addEventListener('input', saveOpts);
+
+for (const id of ['#source', '#target']) {
+  const el = $(id);
+  el.addEventListener('focus', () => acOpen(el));
+  el.addEventListener('mousedown', () => { if (document.activeElement === el && $('#ac').hidden) setTimeout(() => acOpen(el)); });
+  el.addEventListener('input', () => {
+    el.title = el.value;
+    if (!acEnabled(el)) return;
+    AC.input = el; AC.fresh = false; cancelAnimationFrame(AC.raf); AC.raf = requestAnimationFrame(acRender); // gõ nhanh -> gộp vào 1 lần vẽ
+  });
+  el.addEventListener('blur', () => setTimeout(() => { if (AC.input === el && document.activeElement !== el) acClose(); }, 120));
+  el.addEventListener('keydown', e => {
+    const open = !$('#ac').hidden;
+    if (e.key === 'ArrowDown') { e.preventDefault(); open ? acMove(1) : acOpen(el); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); acMove(-1); }
+    else if (e.key === 'Escape' && open) { e.stopPropagation(); acClose(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open && AC.idx >= 0) return acPick(AC.idx);
+      acClose(); saveOpts(); nextField(el);
+    }
+  });
+}
+$('#ac').addEventListener('mousedown', e => {
+  e.preventDefault(); // giữ focus ở ô nhập
+  const it = e.target.closest('.it'); if (it) acPick(+it.dataset.i);
+});
+$('#ac').addEventListener('scroll', e => {
+  const b = e.currentTarget;
+  if (AC.shown < AC.list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 80) acAppend();
+}, { passive: true });
+$('#ac').addEventListener('mousemove', e => {
+  const it = e.target.closest('.it'); if (!it || +it.dataset.i === AC.idx) return;
+  AC.idx = +it.dataset.i; acHighlight();
+});
 for (const id of ['#merge', '#autoMerge', '#removeSource', '#squash']) $(id).addEventListener('change', () => { runLabel(); saveOpts(); });
 $('#btnOpts').onclick = e => { e.stopPropagation(); const p = $('#pop'); p.hidden = !p.hidden; $('#btnOpts').classList.toggle('on', !p.hidden); };
 document.addEventListener('click', e => {
