@@ -345,6 +345,7 @@ const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoCha
 const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi', Submitted: 'Đã submit', Approved: '+2, chưa submit' };
 // Gerrit + chế độ MR = duyệt change: tải change đang mở của repo đã tick, tick change rồi Submit (tự +2)
 const review = () => S.kind === 'gerrit' && S.mode === 'mr';
+S.kindDraft = {}; // link đang nhập theo từng loại server (GitLab / Gerrit) khi đổi loại trong cài đặt
 S.changes = {}; S.cLoaded = new Set(); S.csel = new Set(); S.cst = {};
 function resetChanges() { S.changes = {}; S.cLoaded = new Set(); S.csel = new Set(); S.cst = {}; }
 const chosenChanges = () => tabProjects().flatMap(p => (S.changes[p.id] || []).filter(c => S.csel.has(c.key)));
@@ -707,6 +708,7 @@ const H = {
     S.mode = d.mode === 'branch' ? 'branch' : 'mr';
     S.kind = d.kind === 'gerrit' ? 'gerrit' : 'gitlab';
     $('#gUser').value = d.username || '';
+    S.kindDraft = { [S.kind]: { url: $('#url').value, user: $('#gUser').value } }; // link đã lưu thuộc loại hiện tại
     applyKind();
     $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
     const ready = S.wsHasToken && (d.sources || []).length > 0;
@@ -822,8 +824,15 @@ $('#btnConnect').onclick = connect;
 document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });
 document.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => {
   if (S.busy || S.kind === b.dataset.kind) return;
+  // Mỗi loại server giữ link riêng: link Gerrit không dùng được cho GitLab và ngược lại.
+  // Cất link đang nhập của loại cũ, lấy lại link đã nhập trước đó của loại mới (chưa có thì để trống).
+  S.kindDraft[S.kind] = { url: $('#url').value, user: $('#gUser').value };
   S.kind = b.dataset.kind; S.wsHasToken = false; // đổi loại server thì phải nhập lại token / password
+  const draft = S.kindDraft[S.kind] || { url: '', user: '' };
+  $('#url').value = draft.url; $('#token').value = '';
+  if (S.kind === 'gerrit') $('#gUser').value = draft.user || $('#gUser').value;
   applyKind();
+  setTimeout(() => $('#url').focus(), 30);
   // Gợi ý username Gerrit từ link clone dạng https://user@host/...
   if (S.kind === 'gerrit' && !$('#gUser').value) {
     const m = $('#url').value.match(/https?:\/\/([^@\/\s:]+)@/); if (m) $('#gUser').value = m[1];
