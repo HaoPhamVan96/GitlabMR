@@ -27,13 +27,20 @@ public sealed partial class AppHost
         if (cr?.Rejected != null) return ("Bị CR −2", "err", false);   // phủ quyết: +2 của mình không gỡ được
         if (c.Submittable) return ("Submit được", "ok", true);
         if (cr?.Disliked != null) return ("Có CR −1", "warn", false);  // có người chưa đồng ý: không chọn sẵn, tự tick nếu chắc
+        var missing = MissingRequirements(c);
+        return missing.Count == 0 ? ("Cần +2", "info", true) : ("Thiếu " + string.Join(", ", missing), "warn", false);
+    }
+
+    /// <summary>Điều kiện submit còn thiếu, ngoài Code-Review (vd Verified).</summary>
+    private static List<string> MissingRequirements(GerritClient.ChangeInfo c)
+    {
         var missing = (c.SubmitRequirements ?? new())
             .Where(r => r.Status == "UNSATISFIED" && r.Name != null && r.Name != "Code-Review")
             .Select(r => r.Name!).ToList();
         // Gerrit cũ không có submit_requirements: xem nhãn nào đang chặn
         if (c.SubmitRequirements == null && c.Labels != null)
             missing.AddRange(c.Labels.Where(kv => kv.Key != "Code-Review" && (kv.Value.Rejected != null || kv.Value.Blocking)).Select(kv => kv.Key));
-        return missing.Count == 0 ? ("Cần +2", "info", true) : ("Thiếu " + string.Join(", ", missing.Distinct()), "warn", false);
+        return missing.Distinct().ToList();
     }
 
     private static object ChangeView(GerritClient gc, GlProject p, GerritClient.ChangeInfo c)

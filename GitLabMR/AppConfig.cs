@@ -25,8 +25,44 @@ public sealed class Workspace
     public string Mode { get; set; } = "mr";
     public string? BranchBase { get; set; }
     public string? BranchName { get; set; }
+    /// <summary>Gerrit: tự +2 & submit change đã được reviewer +1, rồi merge bên GitLab (null = chưa cấu hình).</summary>
+    public AutoFlow? Auto { get; set; }
 
     [JsonIgnore] public string SecretKey => "ws-" + Id;
+    [JsonIgnore] public string TeamsKey => "teams-" + Id;
+    [JsonIgnore] public string ZaloKey => "zalo-" + Id;
+}
+
+/// <summary>
+/// Auto flow của 1 workspace Gerrit: quét định kỳ change của các dev đã đặt, có reviewer +1 thì +2 & submit;
+/// submit xong thì tạo / merge MR trên 1 workspace GitLab. Conflict / lỗi báo qua Teams webhook.
+/// </summary>
+public sealed class AutoFlow
+{
+    public bool Enabled { get; set; }
+    /// <summary>Chạy thử: chỉ ghi nhật ký những gì sẽ làm, không +2 / submit / merge.</summary>
+    public bool DryRun { get; set; } = true;
+    public int IntervalSec { get; set; } = 60;
+    /// <summary>Chỉ change vào branch này (trống = mọi branch).</summary>
+    public string? Branch { get; set; }
+    /// <summary>Ai +1 (Code-Review) thì submit: username / email / tên.</summary>
+    public List<string> Reviewers { get; set; } = new();
+    /// <summary>Chỉ change do các account này tạo.</summary>
+    public List<string> Owners { get; set; } = new();
+    /// <summary>Workspace GitLab để tạo / merge MR sau khi submit (trống = chỉ submit Gerrit).</summary>
+    public string? GitLabWs { get; set; }
+    /// <summary>Branch nguồn bên GitLab, {branch} = branch của change trên Gerrit.</summary>
+    public string GitLabSource { get; set; } = "{branch}";
+    public string? GitLabTarget { get; set; }
+    public bool GitLabMerge { get; set; } = true;
+    /// <summary>Link Teams webhook đã bảo vệ (Platform.ProtectToken).</summary>
+    public string? TeamsWebhook { get; set; }
+    /// <summary>Bot token Zalo đã bảo vệ + chat ID (người / nhóm) nhận thông báo.</summary>
+    public string? ZaloToken { get; set; }
+    public string? ZaloChatId { get; set; }
+    public bool NotifySuccess { get; set; }
+    /// <summary>Merge xong theo dõi pipeline trên branch đích, build xong (pass / fail) thì báo.</summary>
+    public bool NotifyPipeline { get; set; } = true;
 }
 
 /// <summary>
@@ -131,10 +167,15 @@ public sealed class AppConfig
         LastSourceBranch = null; LastTargetBranch = null; IgnoreSsl = null; Projects = null;
     }
 
+    private static readonly object SaveLock = new();
+
     public void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOpts));
+        lock (SaveLock) // auto flow chạy nền cũng lưu cấu hình
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOpts));
+        }
     }
 
     public static string? GetToken(Workspace ws) =>

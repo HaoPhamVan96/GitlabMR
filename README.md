@@ -24,6 +24,12 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
     (*Submit được*, *Cần +2*, *Thiếu Verified*, *Bị CR −2*, *Có CR −1*, *WIP*, *Conflict*). App chọn sẵn change submit được hoặc chỉ còn thiếu +2.
     Bấm **Submit**: mỗi change được Code-Review +2 (nếu chưa có) rồi submit. Khác repo chạy song song, cùng repo chạy lần lượt.
     Change nào không submit được thì báo rõ lý do Gerrit trả về (vẫn giữ +2). Cần quyền Code-Review +2 và Submit trên branch.
+  - **Auto submit** (bấm nút ⚙ ở góc phải, phần dưới của panel cài đặt workspace Gerrit): cứ mỗi 60 giây (đổi được), app quét change đang mở của các **account dev** đã nhập.
+    Change nào **reviewer** (vd `khoavn2`) đã Code-Review +1 thì app tự +2 & submit. App bỏ qua change WIP, change có phiếu âm, và change còn thiếu Verified / điều kiện khác (xét lại ở lượt sau).
+    Submit xong, nếu có chọn workspace GitLab: app chờ code sync sang GitLab, rồi tạo MR (hoặc dùng lại MR đang mở) `{branch}` → branch đích (vd `testing2`) và merge nếu bật **Merge**.
+    Conflict hoặc lỗi được báo vào Teams qua webhook (Workflows hoặc Incoming Webhook) và/hoặc **Zalo Bot** (bot token + chat ID, nút **Lấy chat ID**: nhắn riêng cho bot hoặc @ bot trong nhóm). Mỗi patchset chỉ được xử lý 1 lần: dev đẩy patchset mới thì app xét lại.
+    Gerrit đã submit mà GitLab chưa merge xong (không có commit mới, MR chưa merge, pipeline đang chạy) thì luôn báo ⏳. Bật **Báo kết quả pipeline sau khi merge**: merge xong app theo dõi pipeline trên branch đích, pass / fail thì báo kèm link.
+    Bật **Chạy thử** để chỉ ghi vào Nhật ký những gì sẽ làm. Auto chỉ chạy khi app đang mở; tab Gerrit có Auto đang bật hiện dấu ⚡.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
@@ -98,6 +104,9 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/GitLabClient.cs` | GitLab REST API v4 |
 | `GitLabMR/GerritClient.cs` | Gerrit REST API (liệt kê project, tạo branch, change: tải / +2 / submit) |
 | `GitLabMR/GerritReview.cs` | Gerrit chế độ MR: tải change đang mở, +2 & submit hàng loạt |
+| `GitLabMR/AutoRunner.cs` | Auto submit: quét định kỳ, reviewer +1 → +2 & submit → tạo / merge MR GitLab |
+| `GitLabMR/Teams.cs` | Gửi thông báo Teams (Adaptive Card qua webhook) |
+| `GitLabMR/Zalo.cs` | Gửi thông báo Zalo Bot (sendMessage, lấy chat ID qua getUpdates) |
 | `GitLabMR/Updater.cs` | Tự cập nhật (Velopack) / báo có bản mới |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |
 | `GitLabMR/ui.html` | Giao diện |

@@ -132,6 +132,18 @@ public sealed class GlMergeRequest
     public bool? MergeWhenPipelineSucceeds { get; set; }
     public string? MergeError { get; set; }
     public bool Draft { get; set; }
+    public string? MergeCommitSha { get; set; }
+    public string? SquashCommitSha { get; set; }
+    public GlPipeline? HeadPipeline { get; set; }
+}
+
+public sealed class GlPipeline
+{
+    public long Id { get; set; }
+    public string Status { get; set; } = "";   // created, pending, running, success, failed, canceled, skipped, manual…
+    public string Ref { get; set; } = "";
+    public string Sha { get; set; } = "";
+    public string WebUrl { get; set; } = "";
 }
 
 /// <summary>Client tối giản cho GitLab REST API v4, xác thực bằng Personal/Project Access Token.</summary>
@@ -235,6 +247,20 @@ public sealed class GitLabClient : IBranchApi
         }
     }
 
+    /// <summary>Repo đã có commit này chưa (vd chờ code từ Gerrit sync sang).</summary>
+    public async Task<bool> CommitExistsAsync(long projectId, string sha, CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync<GlCommit>(HttpMethod.Get, $"projects/{projectId}/repository/commits/{Esc(sha)}", null, ct);
+            return true;
+        }
+        catch (GitLabException ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     public async Task<List<GlBranch>> GetBranchesAsync(long projectId, CancellationToken ct)
     {
         var all = new List<GlBranch>();
@@ -276,6 +302,11 @@ public sealed class GitLabClient : IBranchApi
 
     public Task<GlMergeRequest> GetMrAsync(long projectId, long iid, CancellationToken ct) =>
         SendAsync<GlMergeRequest>(HttpMethod.Get, $"projects/{projectId}/merge_requests/{iid}", null, ct);
+
+    /// <summary>Pipeline chạy trên commit này (mới nhất trước).</summary>
+    public Task<List<GlPipeline>> GetPipelinesAsync(long projectId, string sha, CancellationToken ct) =>
+        SendAsync<List<GlPipeline>>(HttpMethod.Get,
+            $"projects/{projectId}/pipelines?sha={Esc(sha)}&order_by=id&sort=desc&per_page=5", null, ct);
 
     public Task<GlMergeRequest> MergeAsync(long projectId, long iid, string? sha, bool removeSource, bool squash,
         bool whenPipelineSucceeds, CancellationToken ct)

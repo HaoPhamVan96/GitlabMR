@@ -85,6 +85,16 @@ public sealed class GerritClient : IBranchApi
     {
         public string? Username { get; set; }
         public string? Name { get; set; }
+        public string? Email { get; set; }
+    }
+
+    /// <summary>1 phiếu của 1 người trên 1 nhãn (cần o=DETAILED_LABELS).</summary>
+    public sealed class ApprovalInfo
+    {
+        public int? Value { get; set; }
+        public string? Username { get; set; }
+        public string? Name { get; set; }
+        public string? Email { get; set; }
     }
 
     public sealed class ProjectInfo
@@ -174,6 +184,7 @@ public sealed class GerritClient : IBranchApi
         public JsonElement? Recommended { get; set; }
         public JsonElement? Disliked { get; set; }
         public bool Blocking { get; set; }
+        public List<ApprovalInfo>? All { get; set; }
     }
 
     public sealed class SubmitRequirement
@@ -199,6 +210,7 @@ public sealed class GerritClient : IBranchApi
         public Dictionary<string, LabelInfo>? Labels { get; set; }
         [JsonPropertyName("submit_requirements")] public List<SubmitRequirement>? SubmitRequirements { get; set; }
         [JsonPropertyName("_more_changes")] public bool MoreChanges { get; set; }
+        [JsonPropertyName("current_revision")] public string? CurrentRevision { get; set; }
     }
 
     /// <summary>Id dùng trong URL API: "project~số change" (Gerrit 2.15+ đều hỗ trợ).</summary>
@@ -223,6 +235,34 @@ public sealed class GerritClient : IBranchApi
             }
         }
         return all;
+    }
+
+    /// <summary>Tìm change theo câu query Gerrit, kèm phiếu từng người + revision hiện tại.</summary>
+    public async Task<List<ChangeInfo>> QueryChangesAsync(string query, CancellationToken ct)
+    {
+        var all = new List<ChangeInfo>();
+        for (var start = 0; start < 2000; start += 200)
+        {
+            var page = await SendAsync<List<ChangeInfo>>(HttpMethod.Get,
+                $"changes/?q={Esc(query)}&n=200&S={start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=CURRENT_REVISION&o=SUBMITTABLE", null, ct);
+            all.AddRange(page);
+            if (page.Count == 0 || !page[^1].MoreChanges) break;
+        }
+        return all;
+    }
+
+    /// <summary>SHA đầu branch; null nếu không có branch.</summary>
+    public async Task<string?> GetBranchRevisionAsync(string project, string branch, CancellationToken ct)
+    {
+        try
+        {
+            var b = await SendAsync<BranchInfo>(HttpMethod.Get, $"projects/{Esc(project)}/branches/{Esc(branch)}", null, ct);
+            return b.Revision;
+        }
+        catch (GitLabException ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 
     public Task<ChangeInfo> GetChangeAsync(string project, long number, CancellationToken ct) =>

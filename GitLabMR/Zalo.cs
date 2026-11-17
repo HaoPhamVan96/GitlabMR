@@ -1,0 +1,62 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace GitLabMR;
+
+/// <summary>
+/// Zalo Bot Platform (https://bot.zaloplatforms.com/docs): gửi tin bằng bot token.
+/// Lấy chat ID: người nhận nhắn 1 tin cho bot (hoặc trong nhóm có bot) rồi gọi getUpdates.
+/// </summary>
+public static class Zalo
+{
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(40) };
+    private const int MaxText = 2000;
+
+    public sealed record Chat(string Id, string Type, string Name, string Text);
+
+    private static async Task<JsonElement> CallAsync(string token, string method, object body, CancellationToken ct)
+    {
+        token = token.Trim();
+        if (token.Length == 0 || token.Contains('/')) throw new GitLabException("Bot token Zalo không hợp lệ.");
+        using var res = await Http.PostAsJsonAsync($"https://bot-api.zaloplatforms.com/bot{token}/{method}", body, ct);
+        var text = await res.Content.ReadAsStringAsync(ct);
+        JsonElement root;
+        try { root = JsonDocument.Parse(text).RootElement; }
+        catch (JsonException) { throw new GitLabException($"Zalo trả về HTTP {(int)res.StatusCode}, không phải JSON."); }
+        if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
+            return root.TryGetProperty("result", out var r) ? r : default;
+        var desc = root.TryGetProperty("description", out var d) ? d.ToString() : $"HTTP {(int)res.StatusCode}";
+        var code = root.TryGetProperty("error_code", out var c) ? $" (mã {c})" : "";
+        var hint = (int)res.StatusCode is 401 or 404 ? " – kiểm tra lại bot token." : "";
+        throw new GitLabException($"Zalo: {desc}{code}{hint}");
+    }
+
+    public static Task SendAsync(string token, string chatId, string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(chatId)) throw new GitLabException("Chưa có chat ID Zalo – bấm \"Lấy chat ID\".");
+        if (text.Length > MaxText) text = text[..(MaxText - 1)] + "…";
+        return CallAsync(token, "sendMessage", new { chat_id = chatId.Trim(), text }, ct);
+    }
+
+    /// <summary>Các cuộc trò chuyện vừa nhắn cho bot (mới nhất trước). Trống = chưa ai nhắn trong lúc chờ.</summary>
+    public static async Task<List<Chat>> GetRecentChatsAsync(string token, CancellationToken ct)
+    {
+        JsonElement result;
+        try { result = await CallAsync(token, "getUpdates", new { timeout = "20" }, ct); }
+        catch (GitLabException ex) when (ex.Message.Contains("mã 408")) { return new(); } // hết thời gian chờ mà chưa có tin nào
+        var updates = result.ValueKind == JsonValueKind.Array ? result.EnumerateArray().ToList()
+            : result.ValueKind == JsonValueKind.Object ? new List<JsonElement> { result } : new();
+        var chats = new List<Chat>();
+        foreach (var u in updates.AsEnumerable().Reverse())
+        {
+            if (!u.TryGetProperty("message", out var m) || !m.TryGetProperty("chat", out var chat)) continue;
+            var id = chat.TryGetProperty("id", out var i) ? i.ToString() : "";
+            if (id.Length == 0 || chats.Any(x => x.Id == id)) continue;
+            var type = chat.TryGetProperty("chat_type", out var t) ? t.ToString() : "";
+            var name = m.TryGetProperty("from", out var f) && f.TryGetProperty("display_name", out var n) ? n.ToString() : "";
+            var msg = m.TryGetProperty("text", out var tx) ? tx.ToString() : "";
+            chats.Add(new Chat(id, type, name, msg));
+        }
+        return chats;
+    }
+}

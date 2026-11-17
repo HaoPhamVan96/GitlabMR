@@ -157,6 +157,22 @@ public sealed partial class AppHost
                     _updater.Resend();
                     if (!_updaterStarted) { _updaterStarted = true; _updater.Start(_life.Token); }
                     await SwitchAsync(_ws.Id);
+                    StartAllAuto();
+                    break;
+                case "autoSave":
+                    SaveAuto(m);
+                    break;
+                case "autoRun":
+                    AutoRunNow();
+                    break;
+                case "autoZaloChat":
+                    await AutoZaloChatAsync(Str(m, "zaloToken"));
+                    break;
+                case "autoTestZalo":
+                    await AutoTestZaloAsync(Str(m, "zaloToken"), Str(m, "zaloChat"));
+                    break;
+                case "autoTestTeams":
+                    await AutoTestTeamsAsync(Str(m, "teams"));
                     break;
                 case "checkUpdate":
                     await _updater.CheckAsync(manual: true);
@@ -248,7 +264,7 @@ public sealed partial class AppHost
         items = _cfg.Workspaces.Select(w =>
         {
             var host = HostOf(w);
-            return new { id = w.Id, name = w.Name, kind = w.Kind, host, shortHost = ShortHost(host), connected = State(w).IsConnected };
+            return new { id = w.Id, name = w.Name, kind = w.Kind, host, shortHost = ShortHost(host), connected = State(w).IsConnected, auto = w.Auto?.Enabled == true };
         }),
     });
 
@@ -337,6 +353,7 @@ public sealed partial class AppHost
             mode = _ws.Mode,
             kind = _ws.Kind,
             username = _ws.Username,
+            auto = AutoView(_ws),
         });
 
         var st = St;
@@ -376,6 +393,7 @@ public sealed partial class AppHost
         var ws = _cfg.Workspaces.FirstOrDefault(w => w.Id == id);
         if (ws == null) return;
         _cfg.Workspaces.Remove(ws);
+        StopAuto(ws.Id);
         if (_states.Remove(ws.Id, out var st)) st.Client?.Dispose();
         WsCache.Delete(ws.Id);
         if (_cfg.Workspaces.Count == 0) _cfg.Workspaces.Add(new Workspace { Name = "Workspace 1" });

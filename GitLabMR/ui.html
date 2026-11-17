@@ -230,6 +230,21 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
   .conn .src-head .hint{display:none}
 }
 @media (max-width:520px){ .switch{font-size:0;gap:0} }
+/* ---------- Auto submit (workspace Gerrit, trong panel cài đặt) */
+.auto{grid-column:1/-1;border-top:1px solid var(--line);margin-top:2px;padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.auto .ah{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.auto .ah .st{max-width:none}
+.auto .grid{display:grid;grid-template-columns:108px 1fr;gap:6px 10px;align-items:center}
+.auto .grid>label{font-size:12px;font-weight:600;color:var(--muted)}
+.auto .cell{display:flex;align-items:center;gap:6px;min-width:0}
+.auto .cell .in{flex:1;min-width:0}
+.auto select.in{padding:0 6px;flex:0 1 170px}
+.auto .in.br{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px}
+.auto #aInt{flex:0 0 70px}
+.auto .act{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.auto .act .hint{margin-right:auto;font-size:11.5px;color:var(--faint)}
+.wstab .bolt{color:var(--warn);font-style:normal;font-size:11px;flex:none}
+.wstab .bolt.live{color:var(--ok)}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -261,6 +276,42 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
   </div>
   <label class="mini"><input id="ssl" type="checkbox" class="chk"> Bỏ qua SSL</label>
   <button id="btnConnect" class="btn primary">Kết nối</button>
+  <div id="autoBox" class="auto" hidden>
+    <div class="ah">
+      <label class="switch" title="Tự +2 & submit change đã được reviewer +1, rồi merge bên GitLab"><input id="aOn" type="checkbox"><span class="tr"></span>Auto submit</label>
+      <label class="mini" title="Chỉ ghi nhật ký những gì sẽ làm, không +2 / submit / merge thật"><input id="aDry" type="checkbox" class="chk"> Chạy thử</label>
+      <span id="aState"></span>
+    </div>
+    <div class="grid">
+      <label for="aRev">Reviewer +1</label>
+      <input id="aRev" class="in" placeholder="khoavn2 – người này +1 thì tự submit (nhiều người: dấu phẩy)" spellcheck="false">
+      <label for="aOwn">Account dev</label>
+      <input id="aOwn" class="in" placeholder="Chỉ change của các account này (username / email, dấu phẩy)" spellcheck="false">
+      <label for="aBranch">Branch Gerrit</label>
+      <div class="cell"><input id="aBranch" class="in br" placeholder="trống = mọi branch" spellcheck="false">
+        <span class="hint2" style="margin:0">quét mỗi</span><input id="aInt" class="in" type="number" min="30" max="3600" step="30"><span class="hint2" style="margin:0">giây</span></div>
+      <label for="aGl">Sau khi submit</label>
+      <div class="cell"><select id="aGl" class="in" title="Workspace GitLab để tạo / merge MR"></select>
+        <input id="aSrc" class="in br" placeholder="{branch}" title="Branch nguồn bên GitLab – {branch} = branch của change trên Gerrit" spellcheck="false">
+        <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        <input id="aTgt" class="in br" placeholder="testing2" title="Branch đích bên GitLab" spellcheck="false">
+        <label class="mini" title="Tạo MR xong merge luôn"><input id="aMerge" type="checkbox" class="chk"> Merge</label></div>
+      <label for="aTeams">Teams webhook</label>
+      <div class="cell"><input id="aTeams" class="in" type="password" spellcheck="false">
+        <button id="aTest" class="btn sm" title="Gửi 1 tin thử vào Teams">Gửi thử</button></div>
+      <label for="aZalo">Zalo Bot</label>
+      <div class="cell"><input id="aZalo" class="in" type="password" spellcheck="false" title="Bot token: tạo bot ở Zalo Bot Creator (bot.zaloplatforms.com)">
+        <input id="aZaloChat" class="in br" placeholder="chat ID" spellcheck="false" title="Người / nhóm nhận thông báo" style="flex:0 1 150px">
+        <button id="aZaloGet" class="btn sm" title="Bấm rồi trong 20 giây: nhắn riêng cho bot, hoặc trong nhóm gõ @ chọn tên bot rồi nhắn – app lấy chat ID của cuộc trò chuyện đó">Lấy chat ID</button>
+        <button id="aZaloTest" class="btn sm" title="Gửi 1 tin thử qua Zalo">Gửi thử</button></div>
+      <span></span>
+      <label class="mini" title="Merge xong app theo dõi pipeline trên branch đích, build xong (pass / fail) thì nhắn"><input id="aPipe" type="checkbox" class="chk"> Báo kết quả pipeline sau khi merge (build xong thì nhắn)</label>
+      <span></span>
+      <label class="mini"><input id="aOk" type="checkbox" class="chk"> Báo cả khi thành công (mặc định chỉ báo conflict / lỗi)</label>
+    </div>
+    <div class="act"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Teams / Zalo.</span>
+      <button id="aRun" class="btn sm" title="Quét 1 lượt ngay">Quét ngay</button><button id="aSave" class="btn sm primary">Lưu</button></div>
+  </div>
 </section>
 
 <section class="card bar">
@@ -435,8 +486,57 @@ function applyKind() {
   const K = KINDS[S.kind], g = S.kind === 'gerrit';
   $('#srcTitle').textContent = K.title; $('#srcHint').textContent = K.hint; $('#url').placeholder = K.ph;
   $('#gUser').hidden = !g;
+  $('#autoBox').hidden = !g;
   document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('on', b.dataset.kind === S.kind));
   tokenHint(); applyMode();
+}
+/* ---------- Auto submit (Gerrit): cấu hình trong panel cài đặt của workspace */
+S.auto = null;
+function fillAutoWs(sel) {
+  const gl = S.wsList.filter(w => w.kind === 'gitlab');
+  $('#aGl').innerHTML = '<option value="">Không merge GitLab</option>' +
+    gl.map(w => `<option value="${esc(w.id)}">${esc(w.name)}${w.shortHost ? ' · ' + esc(w.shortHost) : ''}</option>`).join('');
+  $('#aGl').value = gl.some(w => w.id === sel) ? sel : '';
+  autoGlState();
+}
+function autoGlState() { const off = !$('#aGl').value; for (const id of ['#aSrc', '#aTgt', '#aMerge']) $(id).disabled = off; }
+function renderAuto(a) {
+  S.auto = a || {};
+  a = S.auto;
+  $('#aOn').checked = !!a.enabled; $('#aDry').checked = a.dryRun ?? true;
+  $('#aRev').value = a.reviewers || ''; $('#aOwn').value = a.owners || ''; $('#aBranch').value = a.branch || '';
+  $('#aInt').value = a.interval || 60;
+  $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
+  $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true;
+  $('#aTeams').value = '';
+  $('#aTeams').placeholder = a.hasTeams ? 'Đã lưu link – để trống để dùng lại, gõ "-" để xoá' : 'https://… (Teams → kênh → Workflows / Incoming Webhook)';
+  $('#aZalo').value = '';
+  $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
+  $('#aZaloChat').value = a.zaloChat || '';
+  fillAutoWs(a.gitlabWs || '');
+  autoStateText();
+}
+function autoStateText() {
+  const a = S.auto || {};
+  const cls = !a.running ? 'mute' : a.error ? 'err' : a.dryRun ? 'warn' : 'ok';
+  const txt = !a.running ? 'Đang tắt' : (a.dryRun ? 'Chạy thử' : 'Đang chạy') +
+    (a.lastRun ? ` · ${fmtTime(a.lastRun)}` : '') + (a.text ? ` · ${a.text}` : '');
+  $('#aState').innerHTML = `<span class="st st-${cls}" title="${esc(a.text || '')}"><span>${esc(txt)}</span></span>`;
+}
+function autoPayload() {
+  const teams = $('#aTeams').value.trim();
+  return {
+    enabled: $('#aOn').checked, dryRun: $('#aDry').checked, interval: +$('#aInt').value || 60,
+    branch: $('#aBranch').value.trim(), reviewers: $('#aRev').value, owners: $('#aOwn').value,
+    gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
+    gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked,
+    teams: teams === '-' ? '' : teams, clearTeams: teams === '-',
+    ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
+  };
+}
+function zaloPayload() {
+  const t = $('#aZalo').value.trim();
+  return { zaloToken: t === '-' ? '' : t, zaloChat: $('#aZaloChat').value.trim() };
 }
 function renderWsTabs() {
   // Đếm host trùng: chỉ khi 2 workspace cùng host mới hiện thêm tên để phân biệt -> tab gọn
@@ -445,7 +545,8 @@ function renderWsTabs() {
   $('#wsTabs').innerHTML = S.wsList.map(w => {
     const main = w.shortHost || w.name;
     const sub = w.shortHost && hostCount[w.shortHost] > 1 && w.name ? `<i>${esc(w.name)}</i>` : '';
-    const kind = w.kind === 'gerrit' ? '<em class="kind" title="Gerrit">G</em>' : '';
+    const kind = (w.kind === 'gerrit' ? '<em class="kind" title="Gerrit">G</em>' : '') +
+      (w.auto ? `<em class="bolt${w.id === S.wsActive && S.auto?.running && !S.auto?.dryRun ? ' live' : ''}" title="Auto submit đang bật">⚡</em>` : '');
     const tip = [w.kind === 'gerrit' ? 'Gerrit' : 'GitLab', w.host, w.name].filter(Boolean).join(' · ') +
       (w.id === S.wsActive ? ' — bấm lần nữa để mở cài đặt' : '');
     return `<button class="wstab${w.id === S.wsActive ? ' on' : ''}" data-ws="${esc(w.id)}" title="${esc(tip)}" ${S.busy ? 'disabled' : ''}>` +
@@ -801,7 +902,14 @@ const H = {
     $('#removeSource').checked = !!d.removeSource; $('#squash').checked = !!d.squash;
     applyKind();
   },
-  wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); },
+  wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); fillAutoWs($('#aGl').value || S.auto?.gitlabWs || ''); },
+  autoState(d) { if (d.wsId !== S.wsActive) return; S.auto = { ...S.auto, ...d.auto }; autoStateText(); renderWsTabs(); },
+  toast(d) { toast(d.text, d.err); },
+  zaloChat(d) {
+    $('#aZaloGet').disabled = false;
+    $('#aZaloChat').value = d.id;
+    toast(`Chat ID ${d.chatType === 'PRIVATE' ? 'riêng với' : 'nhóm/'} ${d.name || ''} – bấm Lưu để giữ`);
+  },
   wsInfo(d) {
     // Chuyển sang workspace khác: nạp cấu hình của nó, xoá danh sách đang hiện
     S.wsActive = d.id; S.wsHasToken = !!d.hasToken;
@@ -813,6 +921,7 @@ const H = {
     S.mode = d.mode === 'branch' ? 'branch' : 'mr';
     S.kind = d.kind === 'gerrit' ? 'gerrit' : 'gitlab';
     $('#gUser').value = d.username || '';
+    renderAuto(d.auto);
     S.kindDraft = { [S.kind]: { url: $('#url').value, user: $('#gUser').value } }; // link đã lưu thuộc loại hiện tại
     applyKind();
     $('#sum').innerHTML = ''; $('#pickReady').hidden = true; $('#filter').value = '';
@@ -924,6 +1033,13 @@ $('#upd').onclick = () => {
   if (S.busy) { toast('Đang chạy – đợi xong hoặc bấm Dừng rồi cập nhật', true); return; }
   send('applyUpdate');
 };
+$('#aGl').onchange = autoGlState;
+$('#aZaloGet').onclick = () => { $('#aZaloGet').disabled = true; setTimeout(() => $('#aZaloGet').disabled = false, 25000); send('autoZaloChat', zaloPayload()); };
+$('#aZaloTest').onclick = () => send('autoTestZalo', zaloPayload());
+$('#aSave').onclick = () => send('autoSave', autoPayload());
+$('#aRun').onclick = () => { send('autoRun'); toast('Đang quét… xem kết quả trong Nhật ký'); };
+$('#aTest').onclick = () => send('autoTestTeams', { teams: $('#aTeams').value.trim() === '-' ? '' : $('#aTeams').value.trim() });
+$('#aOn').onchange = () => { if ($('#aOn').checked && !$('#aRev').value.trim()) $('#aRev').focus(); };
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;
 document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { if (!S.busy) setMode(b.dataset.mode); });
