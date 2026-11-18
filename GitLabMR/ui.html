@@ -308,6 +308,11 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
       <label class="mini" title="Merge xong app theo dõi pipeline trên branch đích, build xong (pass / fail) thì nhắn"><input id="aPipe" type="checkbox" class="chk"> Báo kết quả pipeline sau khi merge (build xong thì nhắn)</label>
       <span></span>
       <label class="mini"><input id="aOk" type="checkbox" class="chk"> Báo cả khi thành công (mặc định chỉ báo conflict / lỗi)</label>
+      <label for="aFixBr" class="fixrow">Conflict testing2</label>
+      <div class="cell fixrow"><label class="mini" title="Conflict khi merge vào testing2: tạo {branch}_fix_conflict từ testing2, merge branch nguồn vào, nhờ Claude Code sửa (quy trình ppx-merge-testing), build hẹp. Chỉ tự merge khi không có conflict Nặng, tự tin ≥ 80% và build không fail; còn lại tạo MR chờ duyệt. Branch feature giữ sạch."><input id="aFix" type="checkbox" class="chk"> Auto-fix bằng Claude</label>
+        <input id="aFixBr" class="in br" placeholder="{branch}_fix_conflict" title="Tên branch trung gian (tạo từ testing2, merge branch nguồn vào): {branch} = branch nguồn" spellcheck="false">
+        <input id="aClaude" class="in" placeholder="claude.exe – trống = tự tìm" title="Đường dẫn Claude Code CLI (trống = tìm trong PATH, ~/.local/bin, npm)" spellcheck="false">
+        <button id="aClaudeTest" class="btn sm" title="Gọi thử Claude Code CLI (cần đăng nhập 1 lần: mở terminal chạy claude)">Kiểm tra</button></div>
     </div>
     <div class="act"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Teams / Zalo.</span>
       <button id="aRun" class="btn sm" title="Quét 1 lượt ngay">Quét ngay</button><button id="aSave" class="btn sm primary">Lưu</button></div>
@@ -499,7 +504,13 @@ function fillAutoWs(sel) {
   $('#aGl').value = gl.some(w => w.id === sel) ? sel : '';
   autoGlState();
 }
-function autoGlState() { const off = !$('#aGl').value; for (const id of ['#aSrc', '#aTgt', '#aMerge']) $(id).disabled = off; }
+function autoGlState() {
+  const off = !$('#aGl').value;
+  for (const id of ['#aSrc', '#aTgt', '#aMerge']) $(id).disabled = off;
+  // Auto-fix conflict chỉ cho branch đích testing2
+  const fix = !off && $('#aTgt').value.trim().toLowerCase() === 'testing2';
+  document.querySelectorAll('#autoBox .fixrow').forEach(e => e.style.display = fix ? '' : 'none');
+}
 function renderAuto(a) {
   S.auto = a || {};
   a = S.auto;
@@ -508,6 +519,7 @@ function renderAuto(a) {
   $('#aInt').value = a.interval || 60;
   $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
   $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true;
+  $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || '';
   $('#aTeams').value = '';
   $('#aTeams').placeholder = a.hasTeams ? 'Đã lưu link – để trống để dùng lại, gõ "-" để xoá' : 'https://… (Teams → kênh → Workflows / Incoming Webhook)';
   $('#aZalo').value = '';
@@ -530,6 +542,7 @@ function autoPayload() {
     branch: $('#aBranch').value.trim(), reviewers: $('#aRev').value, owners: $('#aOwn').value,
     gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
     gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked,
+    conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(),
     teams: teams === '-' ? '' : teams, clearTeams: teams === '-',
     ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
   };
@@ -1034,8 +1047,10 @@ $('#upd').onclick = () => {
   send('applyUpdate');
 };
 $('#aGl').onchange = autoGlState;
+$('#aTgt').oninput = autoGlState;
 $('#aZaloGet').onclick = () => { $('#aZaloGet').disabled = true; setTimeout(() => $('#aZaloGet').disabled = false, 25000); send('autoZaloChat', zaloPayload()); };
 $('#aZaloTest').onclick = () => send('autoTestZalo', zaloPayload());
+$('#aClaudeTest').onclick = () => send('autoTestClaude', { claudePath: $('#aClaude').value.trim() });
 $('#aSave').onclick = () => send('autoSave', autoPayload());
 $('#aRun').onclick = () => { send('autoRun'); toast('Đang quét… xem kết quả trong Nhật ký'); };
 $('#aTest').onclick = () => send('autoTestTeams', { teams: $('#aTeams').value.trim() === '-' ? '' : $('#aTeams').value.trim() });

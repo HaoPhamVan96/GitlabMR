@@ -63,6 +63,12 @@ public sealed class AutoFlow
     public bool NotifySuccess { get; set; }
     /// <summary>Merge xong theo dõi pipeline trên branch đích, build xong (pass / fail) thì báo.</summary>
     public bool NotifyPipeline { get; set; } = true;
+    /// <summary>Conflict MR GitLab: tạo branch trung gian (từ branch nguồn, merge branch đích vào), nhờ Claude Code sửa, rồi merge branch đó.</summary>
+    public bool ConflictFix { get; set; }
+    /// <summary>Tên branch trung gian: {branch} = branch nguồn, {target} = branch đích.</summary>
+    public string ConflictBranch { get; set; } = "{branch}_fix_conflict";
+    /// <summary>Đường dẫn claude.exe (trống = tự tìm).</summary>
+    public string? ClaudePath { get; set; }
 }
 
 /// <summary>

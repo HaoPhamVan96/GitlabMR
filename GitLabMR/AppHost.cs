@@ -171,6 +171,9 @@ public sealed partial class AppHost
                 case "autoTestZalo":
                     await AutoTestZaloAsync(Str(m, "zaloToken"), Str(m, "zaloChat"));
                     break;
+                case "autoTestClaude":
+                    await AutoTestClaudeAsync(Str(m, "claudePath"));
+                    break;
                 case "autoTestTeams":
                     await AutoTestTeamsAsync(Str(m, "teams"));
                     break;

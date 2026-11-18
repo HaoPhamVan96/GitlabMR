@@ -22,6 +22,8 @@ public sealed partial class AppHost
         public readonly HashSet<string> Noted = new();               // đã ghi log / báo (chống lặp mỗi phút)
         public readonly List<AutoJob> Jobs = new();                  // MR GitLab chờ tạo / merge
         public readonly List<PipeWatch> Pipes = new();               // pipeline chờ build xong
+        public readonly System.Collections.Concurrent.ConcurrentQueue<PipeWatch> NewPipes = new(); // từ luồng auto-fix
+        public readonly HashSet<string> Fixing = new();              // branch fix conflict đang chạy
         public DateTime? LastRun;
         public string LastText = "";
         public bool LastError;
@@ -111,6 +113,7 @@ public sealed partial class AppHost
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, hasTeams = f.TeamsWebhook != null, notifySuccess = f.NotifySuccess,
             hasZalo = f.ZaloToken != null, zaloChat = f.ZaloChatId ?? "", notifyPipeline = f.NotifyPipeline,
+            conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "",
             running = a.Loop != null, lastRun = a.LastRun, text = a.LastText, error = a.LastError, jobs = a.Jobs.Count,
         };
     }
@@ -137,6 +140,11 @@ public sealed partial class AppHost
         f.GitLabMerge = Bool(m, "gitlabMerge");
         f.NotifySuccess = Bool(m, "notifySuccess");
         f.NotifyPipeline = Bool(m, "notifyPipeline");
+        f.ConflictFix = Bool(m, "conflictFix");
+        f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";
+        f.ClaudePath = Str(m, "claudePath") is { Length: > 0 } cp ? cp : null;
+        if (!f.ConflictBranch.Contains("{branch}"))
+            throw new GitLabException("Tên branch fix conflict phải có {branch} (vd {branch}_fix_conflict), để mỗi feature 1 branch riêng.");
         var teams = Str(m, "teams");
         if (Bool(m, "clearTeams")) f.TeamsWebhook = null;
         else if (teams.Length > 0)
@@ -169,6 +177,15 @@ public sealed partial class AppHost
         var ws = _ws;
         if (ws.Kind != "gerrit" || ws.Auto == null) throw new GitLabException("Lưu cấu hình Auto trước đã.");
         _ = Task.Run(() => AutoTickAsync(ws, _life.Token));
+    }
+
+    private async Task AutoTestClaudeAsync(string path)
+    {
+        Send(new { type = "toast", text = "Đang gọi thử Claude Code…" });
+        var err = await ConflictFixer.CheckClaudeAsync(path.Length > 0 ? path : null, _life.Token);
+        if (err != null) throw new GitLabException(err);
+        Log($"[Claude] Chạy được: {ConflictFixer.FindClaude(path.Length > 0 ? path : null)}", LogKind.Success);
+        Send(new { type = "toast", text = "Claude Code chạy được – auto-fix conflict sẵn sàng" });
     }
 
     private async Task AutoTestTeamsAsync(string typed)
@@ -465,7 +482,8 @@ public sealed partial class AppHost
                 else
                 {
                     var conflict = res.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase);
-                    await AlertAsync(ws, conflict ? "Conflict trên GitLab – cần fix" : "GitLab chưa merge được", $"{label}\n{res.Message}", res.Url);
+                    if (conflict && f.ConflictFix && IsFixTarget(job.Target)) StartConflictFix(ws, a, g.Value.Ws, g.Value.Gl, p, job.Source, job.Target, changes, res.Url);
+                    else await AlertAsync(ws, conflict ? "Conflict trên GitLab – cần fix" : "GitLab chưa merge được", $"{label}\n{res.Message}", res.Url);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -478,6 +496,89 @@ public sealed partial class AppHost
         return a.Jobs.Count;
     }
 
+    /// <summary>
+    /// Conflict: branch trung gian {branch}_{target} từ branch nguồn, merge branch đích vào, Claude sửa conflict,
+    /// push rồi tạo MR branch đó → đích và merge. Branch nguồn (feature) không bị merge môi trường vào.
+    /// Chạy nền (có thể mất vài phút), không chặn lượt quét.
+    /// </summary>
+    private void StartConflictFix(Workspace ws, AutoState a, Workspace gws, GitLabClient gl, GlProject p,
+        string source, string target, string changes, string? mrUrl)
+    {
+        var f = ws.Auto!;
+        var tag = $"[Auto {ws.Name}]";
+        var fix = f.ConflictBranch.Replace("{branch}", source).Replace("{target}", target);
+        var label = $"{p.PathWithNamespace} {source} → {target}";
+        var key = $"{p.Id}|{fix}";
+        lock (a.Fixing)
+            if (!a.Fixing.Add(key)) { Log($"{tag} {label}: đang auto-fix qua {fix}, bỏ qua lần này", LogKind.Info); return; }
+        void L(string msg, LogKind k) => Log($"{tag} [{p.PathWithNamespace}] {msg}", k);
+        L($"Conflict → auto-fix qua branch {fix}", LogKind.Warn);
+        _ = Task.Run(async () =>
+        {
+            var ct = _life.Token;
+            var told = false;
+            try
+            {
+                var token = AppConfig.GetToken(gws) ?? throw new GitLabException($"Workspace '{gws.Name}' chưa có token.");
+                if (!ProjectRef.TryParse(gws.Sources.FirstOrDefault(), out var r, out var err)) throw new GitLabException(err);
+                var res = await ConflictFixer.FixAsync(r!.BaseUrl, token, gws.IgnoreSsl, p, source, target, fix, f.ClaudePath,
+                    async files =>
+                    {
+                        told = true;
+                        await AlertAsync(ws, "Conflict trên GitLab – đang auto-fix",
+                            $"{label}\nGerrit {changes}\nConflict ở: {FileList(files)}\nĐang tạo branch {fix} (merge {target} vào) và nhờ Claude sửa, {source} giữ nguyên.", mrUrl);
+                    }, L, ct);
+                if (!res.Ok)
+                {
+                    if (res.BranchExists)
+                        await AlertAsync(ws, "Conflict trên GitLab – branch fix đã có, cần xem",
+                            $"{label}\nGerrit {changes}\n{res.Message}", BranchUrl(p, fix) ?? mrUrl);
+                    else
+                        await AlertAsync(ws, "Auto-fix conflict không được – cần fix tay",
+                            $"{label}\nGerrit {changes}\n{res.Message}" + (res.Files.Count > 0 ? $"\nFile: {FileList(res.Files)}" : "")
+                            + (res.Summary is { } s0 ? $"\nClaude: {s0}" : ""), mrUrl);
+                    return;
+                }
+
+                var desc = $"Auto-fix conflict {source} → {target} (Gerrit {changes}).\n\nFile conflict: {FileList(res.Files)}\n\n{res.Summary}";
+                var opts = new MrOptions(fix, target, $"merge branch {source} to {target}", desc, f.GitLabMerge && res.Safe, _cfg.AutoMerge, true, false);
+                var mr = await MrWorkflow.RunAsync(gl, p, opts, L, ct);
+                var fixLabel = $"{p.PathWithNamespace} {fix} → {target}";
+                var text = $"{fixLabel}\nGerrit {changes}" + (res.Files.Count > 0 ? $"\nĐã sửa: {FileList(res.Files)}" : "")
+                           + (res.Summary is { } s ? $"\nClaude: {s}" : "");
+                if (f.NotifyPipeline && mr.Outcome is MrOutcome.Merged or MrOutcome.AutoMerge && MrIid(mr.Url) is { } iid)
+                    a.NewPipes.Enqueue(new PipeWatch { Project = p, Iid = iid, Label = fixLabel, MrUrl = mr.Url!, Changes = changes });
+                if (!res.Safe && mr.Outcome is MrOutcome.Created or MrOutcome.AlreadyOpen)
+                    await AlertAsync(ws, "Đã fix conflict nhưng chưa merge – cần duyệt", $"{text}\n{res.Message}\nApp không tự merge: xem diff MR rồi merge tay.", mr.Url);
+                else if (mr.Outcome == MrOutcome.Merged)
+                {
+                    L($"Auto-fix conflict xong, {mr.Message}", LogKind.Success);
+                    await NotifyAsync(ws, "Đã auto-fix conflict & merge", text, mr.Url);
+                }
+                else if (mr.Outcome is MrOutcome.AutoMerge or MrOutcome.Created or MrOutcome.AlreadyOpen)
+                    await NotifyAsync(ws, "Đã auto-fix conflict, MR chưa merge", $"{text}\n{mr.Message}", mr.Url, pending: true);
+                else
+                    await AlertAsync(ws, "Auto-fix conflict xong nhưng chưa merge được", $"{text}\n{mr.Message}", mr.Url ?? mrUrl);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                await AlertAsync(ws, told ? "Auto-fix conflict lỗi – cần fix tay" : "Conflict trên GitLab – auto-fix lỗi",
+                    $"{label}\n{Describe(ex)}", mrUrl);
+            }
+            finally { lock (a.Fixing) a.Fixing.Remove(key); }
+        });
+    }
+
+    /// <summary>Auto-fix conflict chỉ dành cho branch môi trường testing2 (quy trình ppx-merge-testing).</summary>
+    private static bool IsFixTarget(string target) => target.Equals("testing2", StringComparison.OrdinalIgnoreCase);
+
+    private static string? BranchUrl(GlProject p, string branch) =>
+        string.IsNullOrEmpty(p.WebUrl) ? null : $"{p.WebUrl.TrimEnd('/')}/-/tree/{Uri.EscapeDataString(branch).Replace("%2F", "/")}";
+
+    private static string FileList(List<string> files) =>
+        files.Count <= 8 ? string.Join(", ", files) : string.Join(", ", files.Take(8)) + $" … (+{files.Count - 8})";
+
     private static long? MrIid(string? url)
     {
         var i = url?.LastIndexOf("/merge_requests/", StringComparison.Ordinal) ?? -1;
@@ -487,6 +588,7 @@ public sealed partial class AppHost
     /// <summary>Theo dõi pipeline sau khi merge: build xong (pass / fail / huỷ) thì báo 1 lần. Trả về số pipeline còn chờ.</summary>
     private async Task<int> RunPipeWatchesAsync(Workspace ws, AutoState a, CancellationToken ct)
     {
+        while (a.NewPipes.TryDequeue(out var nw)) a.Pipes.Add(nw);
         if (a.Pipes.Count == 0) return 0;
         var g = AutoGitLab(ws, a);
         if (g == null) { a.Pipes.Clear(); return 0; }
