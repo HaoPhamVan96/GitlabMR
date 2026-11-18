@@ -53,7 +53,12 @@ public static class Zalo
             var id = chat.TryGetProperty("id", out var i) ? i.ToString() : "";
             if (id.Length == 0 || chats.Any(x => x.Id == id)) continue;
             var type = chat.TryGetProperty("chat_type", out var t) ? t.ToString() : "";
-            var name = m.TryGetProperty("from", out var f) && f.TryGetProperty("display_name", out var n) ? n.ToString() : "";
+            var sender = m.TryGetProperty("from", out var f) && f.TryGetProperty("display_name", out var n) ? n.ToString() : "";
+            // Tên nhóm nếu Zalo có gửi kèm, không thì lấy tên người nhắn
+            var title = new[] { "display_name", "title", "name", "group_name" }
+                .Select(k => chat.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null)
+                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+            var name = title ?? (type.Equals("GROUP", StringComparison.OrdinalIgnoreCase) ? (sender.Length > 0 ? $"Nhóm ({sender} nhắn)" : "Nhóm") : sender);
             var msg = m.TryGetProperty("text", out var tx) ? tx.ToString() : "";
             chats.Add(new Chat(id, type, name, msg));
         }

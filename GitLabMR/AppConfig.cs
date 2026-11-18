@@ -36,6 +36,14 @@ public sealed class Workspace
 /// Auto flow của 1 workspace Gerrit: quét định kỳ change của các dev đã đặt, có reviewer +1 thì +2 & submit;
 /// submit xong thì tạo / merge MR trên 1 workspace GitLab. Conflict / lỗi báo qua Zalo Bot.
 /// </summary>
+public sealed class ZaloChat
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>PRIVATE / GROUP.</summary>
+    public string Type { get; set; } = "";
+}
+
 public sealed class AutoFlow
 {
     public bool Enabled { get; set; }
@@ -56,7 +64,12 @@ public sealed class AutoFlow
     public bool GitLabMerge { get; set; } = true;
     /// <summary>Bot token Zalo đã bảo vệ + chat ID (người / nhóm) nhận thông báo.</summary>
     public string? ZaloToken { get; set; }
-    public string? ZaloChatId { get; set; }
+    /// <summary>Cũ (1 chat ID) – chuyển sang ZaloChats khi lưu.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ZaloChatId { get; set; }
+    /// <summary>Người / nhóm nhận thông báo (tối đa 3).</summary>
+    public List<ZaloChat> ZaloChats { get; set; } = new();
+    [JsonIgnore] public List<ZaloChat> ChatList =>
+        ZaloChats.Count > 0 || string.IsNullOrEmpty(ZaloChatId) ? ZaloChats : new() { new ZaloChat { Id = ZaloChatId } };
     public bool NotifySuccess { get; set; }
     /// <summary>Merge xong theo dõi pipeline trên branch đích, build xong (pass / fail) thì báo.</summary>
     public bool NotifyPipeline { get; set; } = true;

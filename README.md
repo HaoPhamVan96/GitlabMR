@@ -24,15 +24,16 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
     (*Submit được*, *Cần +2*, *Thiếu Verified*, *Bị CR −2*, *Có CR −1*, *WIP*, *Conflict*). App chọn sẵn change submit được hoặc chỉ còn thiếu +2.
     Bấm **Submit**: mỗi change được Code-Review +2 (nếu chưa có) rồi submit. Khác repo chạy song song, cùng repo chạy lần lượt.
     Change nào không submit được thì báo rõ lý do Gerrit trả về (vẫn giữ +2). Cần quyền Code-Review +2 và Submit trên branch.
-  - **Auto submit** (bấm nút ⚙ ở góc phải, phần dưới của panel cài đặt workspace Gerrit): cứ mỗi 60 giây (đổi được), app quét change đang mở của các **account dev** đã nhập.
+  - **Auto submit** (bấm nút ⚙ ở góc phải, phần dưới của panel cài đặt workspace Gerrit): cứ mỗi 60 giây (đổi được, tối thiểu 10 giây), app quét change đang mở của các **account dev** đã nhập.
+    Quét nhanh: giữa các lần quét đầy đủ (5 phút 1 lần) app chỉ hỏi Gerrit change mới cập nhật, nên đặt 10–15 giây vẫn nhẹ. Tạo / merge MR GitLab và theo dõi pipeline chạy ở luồng riêng: submit xong chạy ngay, còn việc chờ thì 10 giây kiểm tra 1 lần.
     Change nào **reviewer** (vd `khoavn2`) đã Code-Review +1 thì app tự +2 & submit. App bỏ qua change WIP, change có phiếu âm, và change còn thiếu Verified / điều kiện khác (xét lại ở lượt sau).
     Submit xong, nếu có chọn workspace GitLab: app chờ code sync sang GitLab, rồi tạo MR (hoặc dùng lại MR đang mở) `{branch}` → branch đích (vd `testing2`) và merge nếu bật **Merge**.
-    Conflict hoặc lỗi được báo qua **Zalo Bot** (bot token + chat ID, nút **Lấy chat ID**: nhắn riêng cho bot hoặc @ bot trong nhóm). Mỗi patchset chỉ được xử lý 1 lần: dev đẩy patchset mới thì app xét lại.
+    Conflict hoặc lỗi được báo qua **Zalo Bot** (nút **Cấu hình…** mở popup: bot token + tối đa 3 nơi nhận (nhóm / người) có đặt tên; **+ Lấy chat ID**: @ bot trong nhóm hoặc nhắn riêng cho bot; **Gửi thử** gửi tới tất cả). Mỗi patchset chỉ được xử lý 1 lần: dev đẩy patchset mới thì app xét lại.
     Gerrit đã submit mà GitLab chưa merge xong (không có commit mới, MR chưa merge, pipeline đang chạy) thì luôn báo ⏳. Bật **Báo kết quả pipeline sau khi merge**: merge xong app theo dõi pipeline trên branch đích, pass / fail thì báo kèm link.
     **Auto-fix conflict testing2** (chỉ hiện khi branch đích là `testing2`, theo quy trình skill `ppx-merge-testing`): MR bị conflict thì app tạo `{branch}_fix_conflict` từ `testing2`,
-    merge branch nguồn vào (branch feature giữ sạch, không merge môi trường vào), gọi **Claude Code CLI** (`claude -p`, ô **model** chọn `opus` / `sonnet`…, trống = mặc định) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin, build hẹp project có file đổi,
-    rồi commit `merge branch {branch} to testing2` (author = git user của máy) và push branch đó. Không có conflict Nặng, tự tin ≥ 80% và build không fail thì tạo MR & merge, ngược lại chỉ tạo MR và báo cần duyệt.
-    Báo 2 lần: có conflict (kèm danh sách file) và kết quả fix. Branch fix đã có trên GitLab thì không ghi đè. Cần cài Claude Code và đăng nhập 1 lần (chạy `claude` trong terminal), bấm **Kiểm tra** để thử.
+    merge branch nguồn vào (branch feature giữ sạch, không merge môi trường vào), gọi **Claude Code CLI** (`claude -p`, ô **model** chọn `opus` / `sonnet`…, trống = mặc định) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin (không build, không trừ điểm vì không build; chỉ lệch khoảng trắng = Nhẹ),
+    rồi commit `merge branch {branch} to testing2` (author = git user của máy) và push branch đó. Không có conflict Nặng, tự tin ≥ 70% thì tạo MR & merge, ngược lại chỉ tạo MR và báo cần duyệt.
+    Báo 2 lần: có conflict (kèm danh sách file) và kết quả fix. Branch fix cũ đã có trên GitLab (kể cả commit khác) thì app tạo lại từ đầu và ghi đè. Cần cài Claude Code và đăng nhập 1 lần (chạy `claude` trong terminal), bấm **Kiểm tra** để thử.
     Bật **Chạy thử** để chỉ ghi vào Nhật ký những gì sẽ làm. Auto chỉ chạy khi app đang mở; tab Gerrit có Auto đang bật hiện dấu ⚡.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.

@@ -6,20 +6,20 @@ namespace GitLabMR;
 /// <summary>
 /// Auto-fix conflict MR GitLab theo quy trình ppx-merge-testing (branch feature giữ sạch, không merge môi trường vào):
 ///   1. Tạo branch {A}_fix_conflict từ origin/testing2, merge --no-ff --no-commit origin/A vào.
-///   2. Conflict thì gọi Claude Code CLI (claude -p) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin, build hẹp.
+///   2. Conflict thì gọi Claude Code CLI (claude -p) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin (không build).
 ///   3. Kiểm tra hết dấu conflict, commit "merge branch A to testing2" (author = git user của máy), push branch fix.
-///      App tạo MR fix → testing2; chỉ merge khi không có conflict Nặng, độ tự tin đủ và build không fail.
+///      App tạo MR fix → testing2; chỉ merge khi không có conflict Nặng và độ tự tin đủ.
 /// Repo clone 1 lần tại %LOCALAPPDATA%\GitLabMR\work\{project id}, các lần sau chỉ fetch.
 /// </summary>
 public static class ConflictFixer
 {
-    /// <summary>Ok = đã push branch fix; Safe = được phép merge tự động (không Nặng, tự tin đủ, build không fail).</summary>
-    public sealed record Result(bool Ok, string Message, List<string> Files, string? Summary = null, bool Safe = true, bool BranchExists = false);
+    /// <summary>Ok = đã push branch fix; Safe = được phép merge tự động (không Nặng, tự tin đủ).</summary>
+    public sealed record Result(bool Ok, string Message, List<string> Files, string? Summary = null, bool Safe = true);
 
     public sealed record FileFix(string File, string Resolution, string Severity, int Confidence);
 
     /// <summary>Độ tự tin tối thiểu (%) để tự merge.</summary>
-    public const int MinConfidence = 80;
+    public const int MinConfidence = 70;
 
     private static readonly TimeSpan ClaudeWait = TimeSpan.FromMinutes(30);
 
@@ -113,9 +113,9 @@ public static class ConflictFixer
         await GitOk("fetch", "-q", "--no-tags", "origin",
             $"+refs/heads/{source}:refs/remotes/origin/{source}", $"+refs/heads/{target}:refs/remotes/origin/{target}");
 
-        // Branch fix đã có trên server (lần fix trước chưa merge, có thể đang được sửa tay) → không ghi đè
-        if ((await Git("ls-remote", "--exit-code", "--heads", "origin", fixBranch)).Code == 0)
-            return new(false, $"Branch '{fixBranch}' đã có trên GitLab (lần fix trước chưa merge?) – app không ghi đè. Xem / merge / xoá branch đó, lần submit sau app chạy lại.", new(), BranchExists: true);
+        // Branch fix cũ (lần trước, có thể commit khác) → luôn tạo lại từ đầu, push đè lên
+        var replaced = (await Git("ls-remote", "--exit-code", "--heads", "origin", fixBranch)).Code == 0;
+        if (replaced) log($"Đã có branch {fixBranch} cũ trên GitLab → tạo lại mới và ghi đè", LogKind.Warn);
 
         // 2. Branch fix từ branch đích (testing2), merge branch nguồn vào – branch nguồn không bị đụng tới
         await GitOk("checkout", "-q", "-f", "--no-track", "-B", fixBranch, $"origin/{target}");
@@ -146,7 +146,7 @@ public static class ConflictFixer
             {
                 "-p", "--output-format", "text", "--permission-mode", "acceptEdits",
                 "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),"
-                                  + "Bash(git merge-base:*),Bash(dotnet build:*),Bash(dotnet restore:*)",
+                                  + "Bash(git merge-base:*)",
             }.Concat(ModelArgs(model)), dir, null, prompt, ClaudeWait, ct);
             if (r.Code != 0) return new(false, ClaudeError(r), files);
             (fixes, build) = ParseReport(r.Out);
@@ -182,8 +182,8 @@ public static class ConflictFixer
 
         // 4. Push branch fix (branch của app, ghi đè được)
         await GitOk("push", "-q", "--force", "origin", $"HEAD:refs/heads/{fixBranch}");
-        log($"Đã push {fixBranch}", LogKind.Success);
-        // Chỉ tự merge khi chắc: đủ đánh giá cho mọi file, không Nặng, tự tin đủ, build không fail
+        log($"Đã push {fixBranch}{(replaced ? " (thay branch cũ)" : "")}", LogKind.Success);
+        // Chỉ tự merge khi chắc: đủ đánh giá cho mọi file, không Nặng, tự tin đủ
         var why = new List<string>();
         if (files.Count > 0)
         {
@@ -194,7 +194,8 @@ public static class ConflictFixer
             if (build?.StartsWith("fail", StringComparison.OrdinalIgnoreCase) == true) why.Add("build fail");
         }
         var safe = why.Count == 0;
-        return new(true, files.Count > 0 ? $"Đã fix {files.Count} file conflict" + (safe ? "" : $" – cần duyệt ({string.Join(", ", why)})") : "Không còn conflict",
+        return new(true, (files.Count > 0 ? $"Đã fix {files.Count} file conflict" + (safe ? "" : $" – cần duyệt ({string.Join(", ", why)})") : "Không còn conflict")
+            + (replaced ? $" · đã xoá branch {fixBranch} cũ, tạo lại mới" : ""),
             files, summary, safe);
     }
 
@@ -246,15 +247,18 @@ public static class ConflictFixer
         - Severity: Light = only usings/imports, line order, comments, whitespace; Medium = one side only adds logic,
           the other edits elsewhere in the same file; Heavy = both sides changed the same logic, a side deleted/renamed
           a member, or a sensitive file.
-        - Narrow build: if a .csproj contains the changed files, run `dotnet build <that.csproj> --disable-build-servers -v q -nologo`
-          (only that project, not the solution). Report "pass", "fail: <first errors>" or "skipped: <reason>"
-          (e.g. restore failed because of network/feeds). Lower confidence if the build was skipped.
-        - Do NOT run git add, commit, checkout, reset, merge, push. Do not touch any other file. Do not mention Claude anywhere.
+        - Exception: if one side of a hunk differs from base ONLY by whitespace / blank lines / line endings, the hunk is Light
+          in ANY file type (sensitive files included) – keep the other side's real change.
+        - Confidence = how sure you are the merged result keeps both sides' intent and is correct code. Judge it only from
+          the code itself; do NOT build or run anything, and do NOT lower confidence because nothing was built or tested.
+          Guide: whitespace/blank-line only 95-100; usings/imports, ordering, comments 90-100; Medium 75-90 (higher when the
+          two changes are clearly independent); Heavy <= 60.
+        - Do NOT run git add, commit, checkout, reset, merge, push, or any build/test command. Do not touch any other file. Do not mention Claude anywhere.
         - Write resolutions in English, one short line each (they go into the commit message).
 
         Finish your reply with exactly one JSON block and nothing after it:
         ```json
-        {"files":[{"file":"path","resolution":"how it was resolved and why","severity":"Light|Medium|Heavy","confidence":90}],"build":"pass"}
+        {"files":[{"file":"path","resolution":"how it was resolved and why","severity":"Light|Medium|Heavy","confidence":90}]}
         ```
         """;
 

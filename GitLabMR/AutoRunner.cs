@@ -13,6 +13,10 @@ namespace GitLabMR;
 public sealed partial class AppHost
 {
     private static readonly TimeSpan SyncWait = TimeSpan.FromMinutes(15);
+    /// <summary>Quét đầy đủ định kỳ (giữa các lần chỉ hỏi change mới cập nhật) để không sót.</summary>
+    private static readonly TimeSpan FullEvery = TimeSpan.FromMinutes(5);
+    /// <summary>Luồng GitLab: còn MR / pipeline chờ thì 10 giây 1 lần, rảnh thì chờ được đánh thức (tối đa 60 giây).</summary>
+    private static readonly TimeSpan GlFast = TimeSpan.FromSeconds(10), GlIdle = TimeSpan.FromSeconds(60);
 
     private sealed class AutoState
     {
@@ -24,8 +28,11 @@ public sealed partial class AppHost
         public readonly List<PipeWatch> Pipes = new();               // pipeline chờ build xong
         public readonly System.Collections.Concurrent.ConcurrentQueue<PipeWatch> NewPipes = new(); // từ luồng auto-fix
         public readonly HashSet<string> Fixing = new();              // branch fix conflict đang chạy
-        public DateTime? LastRun;
-        public string LastText = "";
+        public readonly SemaphoreSlim GlGate = new(1, 1);
+        public readonly SemaphoreSlim Wake = new(0, 1);              // đánh thức luồng GitLab ngay
+        public DateTime? LastRun, LastFull, LastDelta;
+        public int DevCount;
+        public string LastText = "", GlText = "";
         public bool LastError;
         public GerritClient? Gc; public string GcKey = "";
         public GitLabClient? Gl; public string GlKey = "";
@@ -82,9 +89,26 @@ public sealed partial class AppHost
                 catch (OperationCanceledException) { break; }
             }
         });
+        // Luồng GitLab riêng: tạo / merge MR, theo dõi pipeline – không chờ lượt quét Gerrit
+        _ = Task.Run(async () =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                await GitLabTickAsync(ws, cts.Token);
+                bool busy;
+                lock (a.Jobs) busy = a.Jobs.Count > 0 || a.Pipes.Count > 0 || !a.NewPipes.IsEmpty;
+                try { await a.Wake.WaitAsync(busy ? GlFast : GlIdle, cts.Token); }
+                catch (OperationCanceledException) { break; }
+            }
+        });
     }
 
-    private static int Interval(Workspace ws) => Math.Clamp(ws.Auto?.IntervalSec ?? 60, 30, 3600);
+    private static void WakeGitLab(AutoState a)
+    {
+        try { if (a.Wake.CurrentCount == 0) a.Wake.Release(); } catch (SemaphoreFullException) { }
+    }
+
+    private static int Interval(Workspace ws) => Math.Clamp(ws.Auto?.IntervalSec ?? 60, 10, 3600);
 
     private void StopAuto(string wsId)
     {
@@ -98,8 +122,8 @@ public sealed partial class AppHost
     {
         a.Handled.Clear();
         a.Noted.Clear();
-        a.Jobs.Clear();
-        a.Pipes.Clear();
+        lock (a.Jobs) { a.Jobs.Clear(); a.Pipes.Clear(); }
+        a.LastFull = a.LastDelta = null;
     }
 
     private object AutoView(Workspace ws)
@@ -112,9 +136,9 @@ public sealed partial class AppHost
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
-            hasZalo = f.ZaloToken != null, zaloChat = f.ZaloChatId ?? "", notifyPipeline = f.NotifyPipeline,
+            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline,
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
-            running = a.Loop != null, lastRun = a.LastRun, text = a.LastText, error = a.LastError, jobs = a.Jobs.Count,
+            running = a.Loop != null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
     }
 
@@ -130,7 +154,7 @@ public sealed partial class AppHost
         var f = _ws.Auto ??= new AutoFlow();
         f.Enabled = Bool(m, "enabled");
         f.DryRun = Bool(m, "dryRun");
-        f.IntervalSec = Math.Clamp((int?)m["interval"] ?? 60, 30, 3600);
+        f.IntervalSec = Math.Clamp((int?)m["interval"] ?? 60, 10, 3600);
         f.Branch = Str(m, "branch");
         f.Reviewers = SplitList(Str(m, "reviewers"));
         f.Owners = SplitList(Str(m, "owners"));
@@ -150,7 +174,8 @@ public sealed partial class AppHost
         var zalo = Str(m, "zaloToken");
         if (Bool(m, "clearZalo")) f.ZaloToken = null;
         else if (zalo.Length > 0) f.ZaloToken = Platform.ProtectToken(_ws.ZaloKey, zalo);
-        f.ZaloChatId = Str(m, "zaloChat");
+        f.ZaloChats = ParseChats(m);
+        f.ZaloChatId = null;
         if (f.Enabled && (f.Reviewers.Count == 0 || f.Owners.Count == 0))
             throw new GitLabException("Nhập reviewer (+1) và account dev trước khi bật Auto.");
         if (f.Enabled && f.GitLabWs?.Length > 0 && string.IsNullOrEmpty(f.GitLabTarget))
@@ -199,10 +224,35 @@ public sealed partial class AppHost
         Send(new { type = "zaloChat", id = c.Id, chatType = c.Type, name = c.Name });
     }
 
-    private async Task AutoTestZaloAsync(string typed, string chatId)
+    public const int MaxZaloChats = 3;
+
+    private static List<ZaloChat> ParseChats(JsonNode m)
     {
-        await Zalo.SendAsync(ZaloTokenOf(typed), chatId, $"GitLab MR · Auto {_ws.Name}\nTin nhắn thử: Zalo Bot hoạt động.", _life.Token);
-        Send(new { type = "toast", text = "Đã gửi tin thử qua Zalo" });
+        var list = new List<ZaloChat>();
+        if (m["zaloChats"] is JsonArray arr)
+            foreach (var n in arr)
+            {
+                var id = ((string?)n?["id"] ?? "").Trim();
+                if (id.Length == 0 || list.Any(x => x.Id == id)) continue;
+                list.Add(new ZaloChat { Id = id, Name = ((string?)n?["name"] ?? "").Trim(), Type = (string?)n?["type"] ?? "" });
+            }
+        if (list.Count > MaxZaloChats) throw new GitLabException($"1 bot chỉ gửi tối đa {MaxZaloChats} nơi (nhóm / người) – bỏ bớt rồi lưu.");
+        return list;
+    }
+
+    private async Task AutoTestZaloAsync(JsonNode m)
+    {
+        var token = ZaloTokenOf(Str(m, "zaloToken"));
+        var chats = ParseChats(m);
+        if (chats.Count == 0) throw new GitLabException("Chưa có nơi nhận – bấm Lấy chat ID trước.");
+        var fails = new List<string>();
+        foreach (var c in chats)
+        {
+            try { await Zalo.SendAsync(token, c.Id, $"GitLab MR · Auto {_ws.Name}\nTin nhắn thử tới {(c.Name.Length > 0 ? c.Name : c.Id)}: Zalo Bot hoạt động.", _life.Token); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { fails.Add($"{(c.Name.Length > 0 ? c.Name : c.Id)}: {Describe(ex)}"); }
+        }
+        if (fails.Count > 0) throw new GitLabException($"Gửi được {chats.Count - fails.Count}/{chats.Count}. Lỗi – " + string.Join("; ", fails));
+        Send(new { type = "toast", text = $"Đã gửi tin thử tới {chats.Count} nơi" });
     }
 
     // ================================================================ 1 lượt quét
@@ -234,6 +284,35 @@ public sealed partial class AppHost
         }
     }
 
+    private async Task GitLabTickAsync(Workspace ws, CancellationToken life)
+    {
+        var a = AutoOf(ws.Id);
+        if (ws.Auto == null || !await a.GlGate.WaitAsync(0)) return;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(life);
+        cts.CancelAfter(TimeSpan.FromMinutes(10));
+        var before = a.GlText;
+        try
+        {
+            if (ws.Auto.DryRun) { a.GlText = ""; return; }
+            var jobs = await RunGitLabJobsAsync(ws, a, cts.Token);
+            var pipes = await RunPipeWatchesAsync(ws, a, cts.Token);
+            a.GlText = (jobs > 0 ? $"{jobs} MR chờ sync" : "") + (jobs > 0 && pipes > 0 ? ", " : "") + (pipes > 0 ? $"{pipes} pipeline đang chờ" : "");
+            a.Noted.RemoveWhere(k => k.StartsWith("glerr|"));
+        }
+        catch (OperationCanceledException) when (life.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            var text = ex is OperationCanceledException ? "Quá 10 phút chưa xong lượt GitLab" : Describe(ex);
+            a.GlText = "GitLab lỗi";
+            if (a.Noted.Add("glerr|" + text)) await AlertAsync(ws, "Auto lỗi (GitLab)", text, null);
+        }
+        finally
+        {
+            a.GlGate.Release();
+            if (a.GlText != before) SendAutoState(ws);
+        }
+    }
+
     private async Task<string> AutoScanAsync(Workspace ws, AutoState a, CancellationToken ct)
     {
         var f = ws.Auto!;
@@ -243,6 +322,10 @@ public sealed partial class AppHost
 
         var q = "status:open -is:wip (" + string.Join(" OR ", f.Owners.Select(o => $"owner:\"{o}\"")) + ")";
         if (!string.IsNullOrWhiteSpace(f.Branch)) q += $" branch:\"{f.Branch.Trim()}\"";
+        // Giữa các lần quét đầy đủ chỉ hỏi change mới cập nhật (+1, patchset mới, Verified…) – rỗng thì gần như không tốn gì
+        var started = DateTime.Now;
+        var full = a.LastDelta == null || a.LastFull == null || started - a.LastFull > FullEvery;
+        if (!full) q += $" -age:{(int)(started - a.LastDelta!.Value).TotalSeconds + 60}s";
         var changes = await gc.QueryChangesAsync(q, ct);
 
         // Chỉ repo thuộc workspace (theo link đã nhập); chưa có cache thì không lọc
@@ -303,6 +386,7 @@ public sealed partial class AppHost
                 Log($"{tag} {label}: {res.Message} {url}", LogKind.Success);
                 if (f.NotifySuccess) await NotifyAsync(ws, "Đã submit", $"{label}: {c.Subject}\nDev: {owner} · {who} +1", url);
                 await EnqueueGitLabAsync(ws, a, gc, c, ct);
+                WakeGitLab(a);
             }
             else
             {
@@ -312,10 +396,10 @@ public sealed partial class AppHost
             }
         }
 
-        var jobs = await RunGitLabJobsAsync(ws, a, ct);
-        var pipes = await RunPipeWatchesAsync(ws, a, ct);
-        return $"{changes.Count} change của dev" + (submitted > 0 ? $", vừa submit {submitted}" : "") + (jobs > 0 ? $", {jobs} MR chờ sync" : "")
-               + (pipes > 0 ? $", {pipes} pipeline đang chờ" : "");
+        if (full) { a.LastFull = started; a.DevCount = changes.Count; }
+        a.LastDelta = started;
+        return $"{a.DevCount} change của dev" + (!full && changes.Count > 0 ? $" ({changes.Count} vừa cập nhật)" : "")
+               + (submitted > 0 ? $", vừa submit {submitted}" : "");
     }
 
     private static bool Matches(List<string> who, params string?[] ids) =>
@@ -401,10 +485,14 @@ public sealed partial class AppHost
                 await AlertAsync(ws, "Không tìm thấy repo GitLab", $"Không có repo nào trong '{g.Value.Ws.Name}' ứng với '{c.Project}' – chưa tạo MR.", null);
                 return;
             }
-            var job = a.Jobs.FirstOrDefault(j => j.Project.Id == p.Id && j.Source == src && j.Target == f.GitLabTarget);
-            if (job == null) a.Jobs.Add(job = new AutoJob { Project = ToGl(p), Source = src, Target = f.GitLabTarget! });
-            job.Sha = await gc.GetBranchRevisionAsync(c.Project, c.Branch, ct) ?? job.Sha;
-            job.Changes.Add($"#{c.Number}");
+            var sha = await gc.GetBranchRevisionAsync(c.Project, c.Branch, ct);
+            lock (a.Jobs)
+            {
+                var job = a.Jobs.FirstOrDefault(j => j.Project.Id == p.Id && j.Source == src && j.Target == f.GitLabTarget);
+                if (job == null) a.Jobs.Add(job = new AutoJob { Project = ToGl(p), Source = src, Target = f.GitLabTarget! });
+                job.Sha = sha ?? job.Sha;
+                job.Changes.Add($"#{c.Number}");
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -415,12 +503,14 @@ public sealed partial class AppHost
     /// <summary>Tạo / merge MR cho các repo vừa submit (khi code đã sync sang GitLab). Trả về số MR còn chờ.</summary>
     private async Task<int> RunGitLabJobsAsync(Workspace ws, AutoState a, CancellationToken ct)
     {
-        if (a.Jobs.Count == 0) return 0;
+        List<AutoJob> list;
+        lock (a.Jobs) list = a.Jobs.ToList();
+        if (list.Count == 0) return 0;
         var tag = $"[Auto {ws.Name}]";
         var g = AutoGitLab(ws, a);
-        if (g == null) { a.Jobs.Clear(); return 0; }
+        if (g == null) { lock (a.Jobs) a.Jobs.Clear(); return 0; }
         var f = ws.Auto!;
-        foreach (var job in a.Jobs.ToList())
+        foreach (var job in list)
         {
             var p = job.Project;
             var label = $"{p.PathWithNamespace} {job.Source} → {job.Target}";
@@ -432,7 +522,7 @@ public sealed partial class AppHost
                     Once(a, $"sync|{p.Id}|{job.Sha}", $"{tag} {label}: chờ code từ Gerrit sync sang GitLab…", LogKind.Info);
                     continue;
                 }
-                a.Jobs.Remove(job);
+                lock (a.Jobs) a.Jobs.Remove(job);
                 if (late && job.Sha != null)
                 {
                     Log($"{tag} {label}: sau {SyncWait.TotalMinutes:0} phút chưa thấy commit {job.Sha[..8]}, vẫn thử tạo MR", LogKind.Warn);
@@ -474,11 +564,11 @@ public sealed partial class AppHost
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Lỗi mạng tạm thời: giữ lại thử lượt sau, quá thời gian chờ thì báo và bỏ
-                if (late) { a.Jobs.Remove(job); await AlertAsync(ws, "GitLab lỗi", $"{label}\n{Describe(ex)}", null); }
+                if (late) { lock (a.Jobs) a.Jobs.Remove(job); await AlertAsync(ws, "GitLab lỗi", $"{label}\n{Describe(ex)}", null); }
                 else Once(a, $"jerr|{p.Id}|{Describe(ex)}", $"{tag} {label}: {Describe(ex)} – thử lại lượt sau", LogKind.Warn);
             }
         }
-        return a.Jobs.Count;
+        lock (a.Jobs) return a.Jobs.Count;
     }
 
     /// <summary>
@@ -515,13 +605,9 @@ public sealed partial class AppHost
                     }, L, ct);
                 if (!res.Ok)
                 {
-                    if (res.BranchExists)
-                        await AlertAsync(ws, "Conflict trên GitLab – branch fix đã có, cần xem",
-                            $"{label}\nGerrit {changes}\n{res.Message}", BranchUrl(p, fix) ?? mrUrl);
-                    else
-                        await AlertAsync(ws, "Auto-fix conflict không được – cần fix tay",
-                            $"{label}\nGerrit {changes}\n{res.Message}" + (res.Files.Count > 0 ? $"\nFile: {FileList(res.Files)}" : "")
-                            + (res.Summary is { } s0 ? $"\nClaude: {s0}" : ""), mrUrl);
+                    await AlertAsync(ws, "Auto-fix conflict không được – cần fix tay",
+                        $"{label}\nGerrit {changes}\n{res.Message}" + (res.Files.Count > 0 ? $"\nFile: {FileList(res.Files)}" : "")
+                        + (res.Summary is { } s0 ? $"\nClaude: {s0}" : ""), mrUrl);
                     return;
                 }
 
@@ -529,12 +615,15 @@ public sealed partial class AppHost
                 var opts = new MrOptions(fix, target, $"merge branch {source} to {target}", desc, f.GitLabMerge && res.Safe, _cfg.AutoMerge, true, false);
                 var mr = await MrWorkflow.RunAsync(gl, p, opts, L, ct);
                 var fixLabel = $"{p.PathWithNamespace} {fix} → {target}";
-                var text = $"{fixLabel}\nGerrit {changes}" + (res.Files.Count > 0 ? $"\nĐã sửa: {FileList(res.Files)}" : "")
+                var text = $"{fixLabel}\nGerrit {changes}\n{res.Message}" + (res.Files.Count > 0 ? $"\nĐã sửa: {FileList(res.Files)}" : "")
                            + (res.Summary is { } s ? $"\nClaude: {s}" : "");
                 if (f.NotifyPipeline && mr.Outcome is MrOutcome.Merged or MrOutcome.AutoMerge && MrIid(mr.Url) is { } iid)
+                {
                     a.NewPipes.Enqueue(new PipeWatch { Project = p, Iid = iid, Label = fixLabel, MrUrl = mr.Url!, Changes = changes });
+                    WakeGitLab(a);
+                }
                 if (!res.Safe && mr.Outcome is MrOutcome.Created or MrOutcome.AlreadyOpen)
-                    await AlertAsync(ws, "Đã fix conflict nhưng chưa merge – cần duyệt", $"{text}\n{res.Message}\nApp không tự merge: xem diff MR rồi merge tay.", mr.Url);
+                    await AlertAsync(ws, "Đã fix conflict nhưng chưa merge – cần duyệt", $"{text}\nApp không tự merge: xem diff MR rồi merge tay.", mr.Url);
                 else if (mr.Outcome == MrOutcome.Merged)
                 {
                     L($"Auto-fix conflict xong, {mr.Message}", LogKind.Success);
@@ -557,9 +646,6 @@ public sealed partial class AppHost
 
     /// <summary>Auto-fix conflict chỉ dành cho branch môi trường testing2 (quy trình ppx-merge-testing).</summary>
     private static bool IsFixTarget(string target) => target.Equals("testing2", StringComparison.OrdinalIgnoreCase);
-
-    private static string? BranchUrl(GlProject p, string branch) =>
-        string.IsNullOrEmpty(p.WebUrl) ? null : $"{p.WebUrl.TrimEnd('/')}/-/tree/{Uri.EscapeDataString(branch).Replace("%2F", "/")}";
 
     private static string FileList(List<string> files) =>
         files.Count <= 8 ? string.Join(", ", files) : string.Join(", ", files.Take(8)) + $" … (+{files.Count - 8})";
@@ -652,10 +738,12 @@ public sealed partial class AppHost
         if (f == null) return;
         var head = $"{icon ?? (error ? "⚠️" : "✅")} {title}";
         var zalo = f.ZaloToken == null ? null : Platform.UnprotectToken(ws.ZaloKey, f.ZaloToken);
-        if (!string.IsNullOrEmpty(zalo) && !string.IsNullOrEmpty(f.ZaloChatId))
+        if (string.IsNullOrEmpty(zalo)) return;
+        var msg = $"{head} · {ws.Name}\n{text}" + (url != null ? $"\n{url}" : "");
+        foreach (var c in f.ChatList)
         {
-            try { await Zalo.SendAsync(zalo, f.ZaloChatId, $"{head} · {ws.Name}\n{text}" + (url != null ? $"\n{url}" : ""), _life.Token); }
-            catch (Exception ex) { Log($"[Auto {ws.Name}] Không gửi được Zalo: {Describe(ex)}", LogKind.Warn); }
+            try { await Zalo.SendAsync(zalo, c.Id, msg, _life.Token); }
+            catch (Exception ex) { Log($"[Auto {ws.Name}] Không gửi được Zalo tới {(c.Name.Length > 0 ? c.Name : c.Id)}: {Describe(ex)}", LogKind.Warn); }
         }
     }
 }
