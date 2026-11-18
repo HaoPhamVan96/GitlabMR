@@ -34,6 +34,7 @@ public sealed partial class AppHost
         public int DevCount;
         public string LastText = "", GlText = "";
         public bool LastError;
+        public bool Restored;                                        // đã nạp việc đang chờ từ file
         public GerritClient? Gc; public string GcKey = "";
         public GitLabClient? Gl; public string GlKey = "";
     }
@@ -44,7 +45,7 @@ public sealed partial class AppHost
         public required string Source, Target;
         public string? Sha;                       // commit cần có bên GitLab trước khi tạo MR
         public DateTime Since = DateTime.Now;
-        public readonly List<string> Changes = new();
+        public List<string> Changes = new();
     }
 
     /// <summary>MR đã merge (hoặc đang chờ auto-merge): theo dõi pipeline tới khi build xong.</summary>
@@ -77,6 +78,7 @@ public sealed partial class AppHost
     {
         StopAuto(ws.Id);
         var a = AutoOf(ws.Id);
+        RestoreWork(ws, a);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_life.Token);
         a.Loop = cts;
         Log($"[Auto {ws.Name}] Bật{(ws.Auto!.DryRun ? " (chạy thử – chỉ ghi nhật ký)" : "")}, quét mỗi {Interval(ws)} giây", LogKind.Info);
@@ -122,7 +124,7 @@ public sealed partial class AppHost
     {
         a.Handled.Clear();
         a.Noted.Clear();
-        lock (a.Jobs) { a.Jobs.Clear(); a.Pipes.Clear(); }
+        // Giữ MR / pipeline đang chờ: Gerrit đã submit rồi, đổi cấu hình không được làm mất thông báo
         a.LastFull = a.LastDelta = null;
     }
 
@@ -308,9 +310,59 @@ public sealed partial class AppHost
         }
         finally
         {
+            SaveWork(ws.Id, a);
             a.GlGate.Release();
             if (a.GlText != before) SendAutoState(ws);
         }
+    }
+
+    // ---------------------------------------------------------------- việc đang chờ: ghi ra file để mở lại / cập nhật app vẫn theo dõi tiếp
+    private sealed class SavedWork
+    {
+        public List<AutoJob> Jobs { get; set; } = new();
+        public List<PipeWatch> Pipes { get; set; } = new();
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions WorkJs = new() { IncludeFields = true };
+
+    private static string WorkFile(string wsId) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "auto", wsId + ".json");
+
+    private static void SaveWork(string wsId, AutoState a)
+    {
+        try
+        {
+            SavedWork w;
+            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList() };
+            var path = WorkFile(wsId);
+            if (w.Jobs.Count == 0 && w.Pipes.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(w, WorkJs));
+            File.Move(tmp, path, true);
+        }
+        catch { /* không ghi được thì vẫn chạy trong bộ nhớ */ }
+    }
+
+    private void RestoreWork(Workspace ws, AutoState a)
+    {
+        if (a.Restored) return;
+        a.Restored = true;
+        try
+        {
+            var path = WorkFile(ws.Id);
+            if (!File.Exists(path)) return;
+            var w = System.Text.Json.JsonSerializer.Deserialize<SavedWork>(File.ReadAllText(path), WorkJs);
+            if (w == null) return;
+            lock (a.Jobs)
+            {
+                foreach (var j in w.Jobs) if (!a.Jobs.Any(x => x.Project.Id == j.Project.Id && x.Source == j.Source && x.Target == j.Target)) a.Jobs.Add(j);
+                foreach (var pw in w.Pipes) if (!a.Pipes.Any(x => x.Project.Id == pw.Project.Id && x.Iid == pw.Iid)) a.Pipes.Add(pw);
+            }
+            if (w.Jobs.Count + w.Pipes.Count > 0)
+                Log($"[Auto {ws.Name}] Tiếp tục theo dõi {w.Jobs.Count} MR, {w.Pipes.Count} pipeline từ lần chạy trước", LogKind.Info);
+        }
+        catch (Exception ex) { Log($"[Auto {ws.Name}] Không đọc được việc đang chờ: {ex.Message}", LogKind.Warn); }
     }
 
     private async Task<string> AutoScanAsync(Workspace ws, AutoState a, CancellationToken ct)
