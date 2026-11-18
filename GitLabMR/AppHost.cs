@@ -172,10 +172,7 @@ public sealed partial class AppHost
                     await AutoTestZaloAsync(Str(m, "zaloToken"), Str(m, "zaloChat"));
                     break;
                 case "autoTestClaude":
-                    await AutoTestClaudeAsync(Str(m, "claudePath"));
-                    break;
-                case "autoTestTeams":
-                    await AutoTestTeamsAsync(Str(m, "teams"));
+                    await AutoTestClaudeAsync(Str(m, "claudePath"), Str(m, "claudeModel"));
                     break;
                 case "checkUpdate":
                     await _updater.CheckAsync(manual: true);

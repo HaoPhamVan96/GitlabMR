@@ -27,10 +27,10 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
   - **Auto submit** (bấm nút ⚙ ở góc phải, phần dưới của panel cài đặt workspace Gerrit): cứ mỗi 60 giây (đổi được), app quét change đang mở của các **account dev** đã nhập.
     Change nào **reviewer** (vd `khoavn2`) đã Code-Review +1 thì app tự +2 & submit. App bỏ qua change WIP, change có phiếu âm, và change còn thiếu Verified / điều kiện khác (xét lại ở lượt sau).
     Submit xong, nếu có chọn workspace GitLab: app chờ code sync sang GitLab, rồi tạo MR (hoặc dùng lại MR đang mở) `{branch}` → branch đích (vd `testing2`) và merge nếu bật **Merge**.
-    Conflict hoặc lỗi được báo vào Teams qua webhook (Workflows hoặc Incoming Webhook) và/hoặc **Zalo Bot** (bot token + chat ID, nút **Lấy chat ID**: nhắn riêng cho bot hoặc @ bot trong nhóm). Mỗi patchset chỉ được xử lý 1 lần: dev đẩy patchset mới thì app xét lại.
+    Conflict hoặc lỗi được báo qua **Zalo Bot** (bot token + chat ID, nút **Lấy chat ID**: nhắn riêng cho bot hoặc @ bot trong nhóm). Mỗi patchset chỉ được xử lý 1 lần: dev đẩy patchset mới thì app xét lại.
     Gerrit đã submit mà GitLab chưa merge xong (không có commit mới, MR chưa merge, pipeline đang chạy) thì luôn báo ⏳. Bật **Báo kết quả pipeline sau khi merge**: merge xong app theo dõi pipeline trên branch đích, pass / fail thì báo kèm link.
     **Auto-fix conflict testing2** (chỉ hiện khi branch đích là `testing2`, theo quy trình skill `ppx-merge-testing`): MR bị conflict thì app tạo `{branch}_fix_conflict` từ `testing2`,
-    merge branch nguồn vào (branch feature giữ sạch, không merge môi trường vào), gọi **Claude Code CLI** (`claude -p`) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin, build hẹp project có file đổi,
+    merge branch nguồn vào (branch feature giữ sạch, không merge môi trường vào), gọi **Claude Code CLI** (`claude -p`, ô **model** chọn `opus` / `sonnet`…, trống = mặc định) sửa đúng các file conflict, đánh giá độ nặng / độ tự tin, build hẹp project có file đổi,
     rồi commit `merge branch {branch} to testing2` (author = git user của máy) và push branch đó. Không có conflict Nặng, tự tin ≥ 80% và build không fail thì tạo MR & merge, ngược lại chỉ tạo MR và báo cần duyệt.
     Báo 2 lần: có conflict (kèm danh sách file) và kết quả fix. Branch fix đã có trên GitLab thì không ghi đè. Cần cài Claude Code và đăng nhập 1 lần (chạy `claude` trong terminal), bấm **Kiểm tra** để thử.
     Bật **Chạy thử** để chỉ ghi vào Nhật ký những gì sẽ làm. Auto chỉ chạy khi app đang mở; tab Gerrit có Auto đang bật hiện dấu ⚡.
@@ -110,7 +110,6 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/GerritReview.cs` | Gerrit chế độ MR: tải change đang mở, +2 & submit hàng loạt |
 | `GitLabMR/AutoRunner.cs` | Auto submit: quét định kỳ, reviewer +1 → +2 & submit → tạo / merge MR GitLab |
 | `GitLabMR/ConflictFixer.cs` | Auto-fix conflict testing2: branch `_fix_conflict`, gọi Claude Code CLI sửa, commit & push |
-| `GitLabMR/Teams.cs` | Gửi thông báo Teams (Adaptive Card qua webhook) |
 | `GitLabMR/Zalo.cs` | Gửi thông báo Zalo Bot (sendMessage, lấy chat ID qua getUpdates) |
 | `GitLabMR/Updater.cs` | Tự cập nhật (Velopack) / báo có bản mới |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |

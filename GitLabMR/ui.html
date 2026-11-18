@@ -296,9 +296,6 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
         <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
         <input id="aTgt" class="in br" placeholder="testing2" title="Branch đích bên GitLab" spellcheck="false">
         <label class="mini" title="Tạo MR xong merge luôn"><input id="aMerge" type="checkbox" class="chk"> Merge</label></div>
-      <label for="aTeams">Teams webhook</label>
-      <div class="cell"><input id="aTeams" class="in" type="password" spellcheck="false">
-        <button id="aTest" class="btn sm" title="Gửi 1 tin thử vào Teams">Gửi thử</button></div>
       <label for="aZalo">Zalo Bot</label>
       <div class="cell"><input id="aZalo" class="in" type="password" spellcheck="false" title="Bot token: tạo bot ở Zalo Bot Creator (bot.zaloplatforms.com)">
         <input id="aZaloChat" class="in br" placeholder="chat ID" spellcheck="false" title="Người / nhóm nhận thông báo" style="flex:0 1 150px">
@@ -311,10 +308,12 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
       <label for="aFixBr" class="fixrow">Conflict testing2</label>
       <div class="cell fixrow"><label class="mini" title="Conflict khi merge vào testing2: tạo {branch}_fix_conflict từ testing2, merge branch nguồn vào, nhờ Claude Code sửa (quy trình ppx-merge-testing), build hẹp. Chỉ tự merge khi không có conflict Nặng, tự tin ≥ 80% và build không fail; còn lại tạo MR chờ duyệt. Branch feature giữ sạch."><input id="aFix" type="checkbox" class="chk"> Auto-fix bằng Claude</label>
         <input id="aFixBr" class="in br" placeholder="{branch}_fix_conflict" title="Tên branch trung gian (tạo từ testing2, merge branch nguồn vào): {branch} = branch nguồn" spellcheck="false">
-        <input id="aClaude" class="in" placeholder="claude.exe – trống = tự tìm" title="Đường dẫn Claude Code CLI (trống = tìm trong PATH, ~/.local/bin, npm)" spellcheck="false">
+        <input id="aClaude" class="in" placeholder="claude.exe – trống = tự tìm" title="Đường dẫn Claude Code CLI (trống = tìm trong ~/.local/bin, PATH, npm)" spellcheck="false">
+        <input id="aModel" class="in br" list="aModels" placeholder="model – trống = mặc định" title="Model Claude: opus (chắc hơn, chậm hơn), sonnet (nhanh, đủ cho conflict nhẹ), haiku, hoặc tên đầy đủ. Trống = model mặc định của Claude Code" spellcheck="false" style="flex:0 1 150px">
+        <datalist id="aModels"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
         <button id="aClaudeTest" class="btn sm" title="Gọi thử Claude Code CLI (cần đăng nhập 1 lần: mở terminal chạy claude)">Kiểm tra</button></div>
     </div>
-    <div class="act"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Teams / Zalo.</span>
+    <div class="act"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Zalo Bot.</span>
       <button id="aRun" class="btn sm" title="Quét 1 lượt ngay">Quét ngay</button><button id="aSave" class="btn sm primary">Lưu</button></div>
   </div>
 </section>
@@ -519,9 +518,7 @@ function renderAuto(a) {
   $('#aInt').value = a.interval || 60;
   $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
   $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true;
-  $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || '';
-  $('#aTeams').value = '';
-  $('#aTeams').placeholder = a.hasTeams ? 'Đã lưu link – để trống để dùng lại, gõ "-" để xoá' : 'https://… (Teams → kênh → Workflows / Incoming Webhook)';
+  $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || ''; $('#aModel').value = a.claudeModel || '';
   $('#aZalo').value = '';
   $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
   $('#aZaloChat').value = a.zaloChat || '';
@@ -536,14 +533,12 @@ function autoStateText() {
   $('#aState').innerHTML = `<span class="st st-${cls}" title="${esc(a.text || '')}"><span>${esc(txt)}</span></span>`;
 }
 function autoPayload() {
-  const teams = $('#aTeams').value.trim();
   return {
     enabled: $('#aOn').checked, dryRun: $('#aDry').checked, interval: +$('#aInt').value || 60,
     branch: $('#aBranch').value.trim(), reviewers: $('#aRev').value, owners: $('#aOwn').value,
     gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
     gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked,
-    conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(),
-    teams: teams === '-' ? '' : teams, clearTeams: teams === '-',
+    conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim(),
     ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
   };
 }
@@ -1050,10 +1045,9 @@ $('#aGl').onchange = autoGlState;
 $('#aTgt').oninput = autoGlState;
 $('#aZaloGet').onclick = () => { $('#aZaloGet').disabled = true; setTimeout(() => $('#aZaloGet').disabled = false, 25000); send('autoZaloChat', zaloPayload()); };
 $('#aZaloTest').onclick = () => send('autoTestZalo', zaloPayload());
-$('#aClaudeTest').onclick = () => send('autoTestClaude', { claudePath: $('#aClaude').value.trim() });
+$('#aClaudeTest').onclick = () => send('autoTestClaude', { claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim() });
 $('#aSave').onclick = () => send('autoSave', autoPayload());
 $('#aRun').onclick = () => { send('autoRun'); toast('Đang quét… xem kết quả trong Nhật ký'); };
-$('#aTest').onclick = () => send('autoTestTeams', { teams: $('#aTeams').value.trim() === '-' ? '' : $('#aTeams').value.trim() });
 $('#aOn').onchange = () => { if ($('#aOn').checked && !$('#aRev').value.trim()) $('#aRev').focus(); };
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
 $('#btnConnect').onclick = connect;

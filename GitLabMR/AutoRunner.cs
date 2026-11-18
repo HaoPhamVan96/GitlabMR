@@ -5,7 +5,7 @@ namespace GitLabMR;
 /// <summary>
 /// Auto flow (workspace Gerrit), cứ mỗi IntervalSec giây:
 ///   1. Tìm change đang mở của các dev đã đặt (Owners) mà reviewer (Reviewers) đã Code-Review +1.
-///   2. +2 & submit (không đụng change có phiếu âm / còn thiếu Verified…; conflict thì báo Teams).
+///   2. +2 & submit (không đụng change có phiếu âm / còn thiếu Verified…; conflict thì báo Zalo).
 ///   3. Submit xong: chờ code sync sang GitLab rồi tạo (và merge) MR {branch} → GitLabTarget.
 /// Mỗi change chỉ xử lý 1 lần cho mỗi patchset; patchset mới (sau khi dev sửa) thì xét lại.
 /// Chạy thử (DryRun): chỉ ghi nhật ký những gì sẽ làm.
@@ -111,9 +111,9 @@ public sealed partial class AppHost
             enabled = f.Enabled, dryRun = f.DryRun, interval = f.IntervalSec, branch = f.Branch ?? "",
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
-            gitlabMerge = f.GitLabMerge, hasTeams = f.TeamsWebhook != null, notifySuccess = f.NotifySuccess,
+            gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
             hasZalo = f.ZaloToken != null, zaloChat = f.ZaloChatId ?? "", notifyPipeline = f.NotifyPipeline,
-            conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "",
+            conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
             running = a.Loop != null, lastRun = a.LastRun, text = a.LastText, error = a.LastError, jobs = a.Jobs.Count,
         };
     }
@@ -143,16 +143,10 @@ public sealed partial class AppHost
         f.ConflictFix = Bool(m, "conflictFix");
         f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";
         f.ClaudePath = Str(m, "claudePath") is { Length: > 0 } cp ? cp : null;
+        f.ClaudeModel = Str(m, "claudeModel") is { Length: > 0 } cm ? cm : null;
+        if (f.ClaudeModel?.Any(ch => char.IsWhiteSpace(ch) || ch == '"') == true) throw new GitLabException("Tên model không hợp lệ (vd opus, sonnet).");
         if (!f.ConflictBranch.Contains("{branch}"))
             throw new GitLabException("Tên branch fix conflict phải có {branch} (vd {branch}_fix_conflict), để mỗi feature 1 branch riêng.");
-        var teams = Str(m, "teams");
-        if (Bool(m, "clearTeams")) f.TeamsWebhook = null;
-        else if (teams.Length > 0)
-        {
-            if (!Uri.TryCreate(teams, UriKind.Absolute, out var u) || u.Scheme != "https")
-                throw new GitLabException("Link Teams webhook phải bắt đầu bằng https://");
-            f.TeamsWebhook = Platform.ProtectToken(_ws.TeamsKey, teams);
-        }
         var zalo = Str(m, "zaloToken");
         if (Bool(m, "clearZalo")) f.ZaloToken = null;
         else if (zalo.Length > 0) f.ZaloToken = Platform.ProtectToken(_ws.ZaloKey, zalo);
@@ -179,22 +173,13 @@ public sealed partial class AppHost
         _ = Task.Run(() => AutoTickAsync(ws, _life.Token));
     }
 
-    private async Task AutoTestClaudeAsync(string path)
+    private async Task AutoTestClaudeAsync(string path, string model)
     {
         Send(new { type = "toast", text = "Đang gọi thử Claude Code…" });
-        var err = await ConflictFixer.CheckClaudeAsync(path.Length > 0 ? path : null, _life.Token);
+        var err = await ConflictFixer.CheckClaudeAsync(path.Length > 0 ? path : null, model, _life.Token);
         if (err != null) throw new GitLabException(err);
-        Log($"[Claude] Chạy được: {ConflictFixer.FindClaude(path.Length > 0 ? path : null)}", LogKind.Success);
+        Log($"[Claude] Chạy được: {ConflictFixer.FindClaude(path.Length > 0 ? path : null)} · model {(model.Length > 0 ? model : "mặc định")}", LogKind.Success);
         Send(new { type = "toast", text = "Claude Code chạy được – auto-fix conflict sẵn sàng" });
-    }
-
-    private async Task AutoTestTeamsAsync(string typed)
-    {
-        var url = typed.Length > 0 ? typed
-            : _ws.Auto?.TeamsWebhook is { } stored ? Platform.UnprotectToken(_ws.TeamsKey, stored) : null;
-        if (string.IsNullOrEmpty(url)) throw new GitLabException("Dán link Teams webhook trước đã.");
-        await Teams.SendAsync(url, $"GitLab MR · Auto {_ws.Name}", "Tin nhắn thử: webhook hoạt động.", null, false, _life.Token);
-        Send(new { type = "toast", text = "Đã gửi tin thử vào Teams" });
     }
 
     private string ZaloTokenOf(string typed) =>
@@ -521,7 +506,7 @@ public sealed partial class AppHost
             {
                 var token = AppConfig.GetToken(gws) ?? throw new GitLabException($"Workspace '{gws.Name}' chưa có token.");
                 if (!ProjectRef.TryParse(gws.Sources.FirstOrDefault(), out var r, out var err)) throw new GitLabException(err);
-                var res = await ConflictFixer.FixAsync(r!.BaseUrl, token, gws.IgnoreSsl, p, source, target, fix, f.ClaudePath,
+                var res = await ConflictFixer.FixAsync(r!.BaseUrl, token, gws.IgnoreSsl, p, source, target, fix, f.ClaudePath, f.ClaudeModel,
                     async files =>
                     {
                         told = true;
@@ -653,25 +638,19 @@ public sealed partial class AppHost
     {
         Log($"[Auto {ws.Name}] {title}: {text.Replace('\n', ' ')} {url}", LogKind.Error);
         Send(new { type = "toast", text = $"Auto: {title}", err = true });
-        return TeamsAsync(ws, title, text, url, true);
+        return ChannelsAsync(ws, title, text, url, true);
     }
 
     /// <summary>Thông báo không phải lỗi: ✅ xong, ⏳ (pending) đã submit nhưng GitLab chưa merge xong.</summary>
     private Task NotifyAsync(Workspace ws, string title, string text, string? url, bool pending = false) =>
-        TeamsAsync(ws, title, text, url, false, pending ? "⏳" : null);
+        ChannelsAsync(ws, title, text, url, false, pending ? "⏳" : null);
 
-    /// <summary>Gửi tới mọi kênh đã cấu hình (Teams, Zalo). Lỗi gửi chỉ ghi nhật ký.</summary>
-    private async Task TeamsAsync(Workspace ws, string title, string text, string? url, bool error, string? icon = null)
+    /// <summary>Gửi tới kênh đã cấu hình (Zalo Bot). Lỗi gửi chỉ ghi nhật ký.</summary>
+    private async Task ChannelsAsync(Workspace ws, string title, string text, string? url, bool error, string? icon = null)
     {
         var f = ws.Auto;
         if (f == null) return;
         var head = $"{icon ?? (error ? "⚠️" : "✅")} {title}";
-        var hook = f.TeamsWebhook == null ? null : Platform.UnprotectToken(ws.TeamsKey, f.TeamsWebhook);
-        if (!string.IsNullOrEmpty(hook))
-        {
-            try { await Teams.SendAsync(hook, head, text, url, error, _life.Token); }
-            catch (Exception ex) { Log($"[Auto {ws.Name}] Không gửi được Teams: {Describe(ex)}", LogKind.Warn); }
-        }
         var zalo = f.ZaloToken == null ? null : Platform.UnprotectToken(ws.ZaloKey, f.ZaloToken);
         if (!string.IsNullOrEmpty(zalo) && !string.IsNullOrEmpty(f.ZaloChatId))
         {

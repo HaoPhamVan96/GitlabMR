@@ -29,13 +29,12 @@ public sealed class Workspace
     public AutoFlow? Auto { get; set; }
 
     [JsonIgnore] public string SecretKey => "ws-" + Id;
-    [JsonIgnore] public string TeamsKey => "teams-" + Id;
     [JsonIgnore] public string ZaloKey => "zalo-" + Id;
 }
 
 /// <summary>
 /// Auto flow của 1 workspace Gerrit: quét định kỳ change của các dev đã đặt, có reviewer +1 thì +2 & submit;
-/// submit xong thì tạo / merge MR trên 1 workspace GitLab. Conflict / lỗi báo qua Teams webhook.
+/// submit xong thì tạo / merge MR trên 1 workspace GitLab. Conflict / lỗi báo qua Zalo Bot.
 /// </summary>
 public sealed class AutoFlow
 {
@@ -55,8 +54,6 @@ public sealed class AutoFlow
     public string GitLabSource { get; set; } = "{branch}";
     public string? GitLabTarget { get; set; }
     public bool GitLabMerge { get; set; } = true;
-    /// <summary>Link Teams webhook đã bảo vệ (Platform.ProtectToken).</summary>
-    public string? TeamsWebhook { get; set; }
     /// <summary>Bot token Zalo đã bảo vệ + chat ID (người / nhóm) nhận thông báo.</summary>
     public string? ZaloToken { get; set; }
     public string? ZaloChatId { get; set; }
@@ -69,6 +66,8 @@ public sealed class AutoFlow
     public string ConflictBranch { get; set; } = "{branch}_fix_conflict";
     /// <summary>Đường dẫn claude.exe (trống = tự tìm).</summary>
     public string? ClaudePath { get; set; }
+    /// <summary>Model Claude (--model): opus, sonnet, haiku hoặc tên đầy đủ; trống = mặc định của Claude Code.</summary>
+    public string? ClaudeModel { get; set; }
 }
 
 /// <summary>

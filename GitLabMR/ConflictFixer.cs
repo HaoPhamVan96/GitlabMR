@@ -29,28 +29,45 @@ public static class ConflictFixer
     /// <summary>Tìm Claude Code CLI: đường dẫn cấu hình → PATH → ~/.local/bin → npm global.</summary>
     public static string? FindClaude(string? configured)
     {
-        if (!string.IsNullOrWhiteSpace(configured)) return File.Exists(configured) ? configured : null;
-        var names = OperatingSystem.IsWindows() ? new[] { "claude.exe", "claude.cmd" } : new[] { "claude" };
-        var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (!string.IsNullOrWhiteSpace(configured)) return Usable(configured) ? configured : null;
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        dirs.Add(Path.Combine(home, ".local", "bin"));
+        // Bản cài native (~/.local/bin) trước, rồi PATH, rồi npm global
+        var dirs = new List<string> { Path.Combine(home, ".local", "bin") };
+        dirs.AddRange((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
         dirs.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"));
         dirs.Add("/opt/homebrew/bin"); dirs.Add("/usr/local/bin");
-        foreach (var d in dirs)
-            foreach (var n in names)
+        var names = OperatingSystem.IsWindows() ? new[] { "claude.exe", "claude.cmd" } : new[] { "claude" };
+        foreach (var n in names)            // .exe ở mọi thư mục trước .cmd
+            foreach (var d in dirs)
             {
-                try { var p = Path.Combine(d.Trim('"'), n); if (File.Exists(p)) return p; } catch { }
+                try { var p = Path.Combine(d.Trim('"'), n); if (Usable(p)) return p; } catch { }
             }
         return null;
     }
 
+    /// <summary>Bỏ qua bản cài hỏng: npm đôi khi chỉ để lại claude.exe giả vài trăm byte (chưa tải binary thật).</summary>
+    private static bool Usable(string p)
+    {
+        if (!File.Exists(p)) return false;
+        if (p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return new FileInfo(p).Length > 1_000_000;
+        if (p.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
+        {
+            var exe = Path.Combine(Path.GetDirectoryName(p)!, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
+            return !File.Exists(exe) || new FileInfo(exe).Length > 1_000_000;
+        }
+        return true;
+    }
+
     /// <summary>Gọi thử Claude: trả về null nếu chạy được, ngược lại là lý do.</summary>
-    public static async Task<string?> CheckClaudeAsync(string? configured, CancellationToken ct)
+    private static string[] ModelArgs(string? model) =>
+        string.IsNullOrWhiteSpace(model) ? Array.Empty<string>() : new[] { "--model", model.Trim() };
+
+    public static async Task<string?> CheckClaudeAsync(string? configured, string? model, CancellationToken ct)
     {
         var exe = FindClaude(configured);
         if (exe == null) return "Không tìm thấy Claude Code CLI (claude). Cài: npm i -g @anthropic-ai/claude-code, hoặc nhập đường dẫn claude.exe.";
         var dir = Directory.CreateDirectory(Path.Combine(WorkRoot, "_check")).FullName;
-        var r = await RunAsync(exe, new[] { "-p", "--output-format", "text" }, dir, null, "Reply with exactly: OK", TimeSpan.FromMinutes(2), ct);
+        var r = await RunAsync(exe, new[] { "-p", "--output-format", "text" }.Concat(ModelArgs(model)), dir, null, "Reply with exactly: OK", TimeSpan.FromMinutes(2), ct);
         return r.Code == 0 && r.Out.Contains("OK") ? null : ClaudeError(r);
     }
 
@@ -64,7 +81,7 @@ public static class ConflictFixer
 
     public static async Task<Result> FixAsync(
         string baseUrl, string token, bool ignoreSsl, GlProject p, string source, string target, string fixBranch,
-        string? claudePath, Func<List<string>, Task> onConflict, Action<string, LogKind> log, CancellationToken ct)
+        string? claudePath, string? model, Func<List<string>, Task> onConflict, Action<string, LogKind> log, CancellationToken ct)
     {
         var exe = FindClaude(claudePath);
         var dir = Path.Combine(WorkRoot, p.Id.ToString());
@@ -123,14 +140,14 @@ public static class ConflictFixer
                 return new(false, "Không tìm thấy Claude Code CLI (claude) để sửa conflict.", files);
 
             // 3. Claude sửa conflict trong đúng các file đó
-            log($"Gọi Claude sửa {files.Count} file conflict…", LogKind.Info);
+            log($"Gọi Claude{(string.IsNullOrWhiteSpace(model) ? "" : $" ({model})")} sửa {files.Count} file conflict…", LogKind.Info);
             var prompt = Prompt(p, source, target, files);
             var r = await RunAsync(exe, new[]
             {
                 "-p", "--output-format", "text", "--permission-mode", "acceptEdits",
                 "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),"
                                   + "Bash(git merge-base:*),Bash(dotnet build:*),Bash(dotnet restore:*)",
-            }, dir, null, prompt, ClaudeWait, ct);
+            }.Concat(ModelArgs(model)), dir, null, prompt, ClaudeWait, ct);
             if (r.Code != 0) return new(false, ClaudeError(r), files);
             (fixes, build) = ParseReport(r.Out);
             summary = fixes.Count > 0
