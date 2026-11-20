@@ -312,6 +312,8 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
       <span></span>
       <label class="mini" title="Merge xong app theo dõi pipeline trên branch đích, build xong (pass / fail) thì nhắn"><input id="aPipe" type="checkbox" class="chk"> Báo kết quả pipeline sau khi merge (build xong thì nhắn)</label>
       <span></span>
+      <label class="mini" title="Reviewer đã +1 mà còn comment chưa resolve: app trả lời &quot;Done&quot; và resolve các comment viết trước lúc +1, rồi submit. Comment mới hơn lúc +1 thì không đụng, báo bot."><input id="aResolve" type="checkbox" class="chk"> Tự resolve comment (viết trước lúc +1) rồi submit</label>
+      <span></span>
       <label class="mini"><input id="aOk" type="checkbox" class="chk"> Báo cả khi thành công (mặc định chỉ báo conflict / lỗi)</label>
       <label for="aFixBr" class="fixrow">Conflict testing2</label>
       <div class="cell fixrow"><label class="mini" title="Conflict khi merge vào testing2: tạo {branch}_fix_conflict từ testing2, merge branch nguồn vào, nhờ Claude Code sửa (quy trình ppx-merge-testing). Chỉ tự merge khi không có conflict Nặng và tự tin ≥ 70%; còn lại tạo MR chờ duyệt. Branch feature giữ sạch."><input id="aFix" type="checkbox" class="chk"> Auto-fix bằng Claude</label>
@@ -539,7 +541,7 @@ function renderAuto(a) {
   $('#aRev').value = a.reviewers || ''; $('#aOwn').value = a.owners || ''; $('#aBranch').value = a.branch || '';
   $('#aInt').value = a.interval || 60;
   $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
-  $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true;
+  $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true; $('#aResolve').checked = a.autoResolve ?? true;
   $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || ''; $('#aModel').value = a.claudeModel || '';
   $('#aZalo').value = '';
   $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
@@ -560,7 +562,7 @@ function autoPayload() {
     enabled: $('#aOn').checked, dryRun: $('#aDry').checked, interval: +$('#aInt').value || 60,
     branch: $('#aBranch').value.trim(), reviewers: $('#aRev').value, owners: $('#aOwn').value,
     gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
-    gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked,
+    gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked, autoResolve: $('#aResolve').checked,
     conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim(),
     ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
   };

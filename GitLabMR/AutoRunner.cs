@@ -138,7 +138,7 @@ public sealed partial class AppHost
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
-            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline,
+            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve,
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
             running = a.Loop != null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
@@ -166,6 +166,7 @@ public sealed partial class AppHost
         f.GitLabMerge = Bool(m, "gitlabMerge");
         f.NotifySuccess = Bool(m, "notifySuccess");
         f.NotifyPipeline = Bool(m, "notifyPipeline");
+        f.AutoResolve = Bool(m, "autoResolve");
         f.ConflictFix = Bool(m, "conflictFix");
         f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";
         f.ClaudePath = Str(m, "claudePath") is { Length: > 0 } cp ? cp : null;
@@ -415,7 +416,18 @@ public sealed partial class AppHost
                 continue;
             }
             var missing = MissingRequirements(c);
-            if (missing.Count > 0)
+            var onlyComments = missing.Count > 0 && missing.All(IsUnresolvedReq);
+            if (onlyComments && !f.AutoResolve)
+            {
+                // Chỉ vướng comment chưa resolve: báo 1 lần để dev resolve
+                if (a.Noted.Add($"cmt|{key}|{rev}"))
+                {
+                    Log($"{tag} {label}: {who} đã +1 nhưng còn comment chưa resolve", LogKind.Warn);
+                    await NotifyAsync(ws, "Gerrit: còn comment chưa resolve", $"{label}: {c.Subject}\nDev: {owner} · {who} đã +1\nResolve comment thì app submit ở lượt quét sau.", url, pending: true);
+                }
+                continue;
+            }
+            if (missing.Count > 0 && !onlyComments)
             {
                 Once(a, $"wait|{key}|{rev}|{string.Join(",", missing)}", $"{tag} {label}: {who} đã +1, chờ {string.Join(", ", missing)}", LogKind.Info);
                 continue;
@@ -430,13 +442,29 @@ public sealed partial class AppHost
             }
 
             Log($"{tag} {label}: {who} đã +1 → +2 & submit", LogKind.Info);
-            var res = await SubmitOneAsync(gc, c, (msg, k) => Log($"{tag} {label}: {msg}", k), ct);
+            var res = await SubmitOneAsync(gc, c, (msg, k) => Log($"{tag} {label}: {msg}", k), ct,
+                f.AutoResolve, GerritClient.ParseTime(by.Date) ?? DateTime.UtcNow, "Done");
+            if (res.Outcome == MrOutcome.NotMerged)
+            {
+                // Có comment mới hơn lúc +1: chưa submit, xét lại lượt sau (dev resolve xong là chạy), chỉ báo 1 lần
+                if (a.Noted.Add($"newcmt|{key}|{rev}"))
+                {
+                    Log($"{tag} {label}: {res.Message}", LogKind.Warn);
+                    await NotifyAsync(ws, "Gerrit: có comment mới sau lúc +1", $"{label}: {c.Subject}\nDev: {owner} · {who} +1\n{res.Message}\nResolve xong app tự submit.", url, pending: true);
+                }
+                continue;
+            }
             a.Handled[key] = rev;
             if (res.Outcome == MrOutcome.Submitted)
             {
                 submitted++;
                 Log($"{tag} {label}: {res.Message} {url}", LogKind.Success);
-                if (f.NotifySuccess) await NotifyAsync(ws, "Đã submit", $"{label}: {c.Subject}\nDev: {owner} · {who} +1", url);
+                // Tự resolve comment thì luôn báo (ghi chú chỉ ở Zalo, trên Gerrit chỉ trả lời "Done")
+                var resolved = System.Text.RegularExpressions.Regex.Match(res.Message, @"resolve (\d+) comment");
+                if (resolved.Success)
+                    await NotifyAsync(ws, $"Đã tự resolve {resolved.Groups[1].Value} comment rồi submit",
+                        $"{label}: {c.Subject}\nDev: {owner} · {who} +1\nComment viết trước lúc +1 được trả lời \"Done\" và resolve.", url);
+                else if (f.NotifySuccess) await NotifyAsync(ws, "Đã submit", $"{label}: {c.Subject}\nDev: {owner} · {who} +1", url);
                 await EnqueueGitLabAsync(ws, a, gc, c, ct);
                 WakeGitLab(a);
             }

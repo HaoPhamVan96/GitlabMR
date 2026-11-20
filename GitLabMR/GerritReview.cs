@@ -28,8 +28,14 @@ public sealed partial class AppHost
         if (c.Submittable) return ("Submit được", "ok", true);
         if (cr?.Disliked != null) return ("Có CR −1", "warn", false);  // có người chưa đồng ý: không chọn sẵn, tự tick nếu chắc
         var missing = MissingRequirements(c);
+        if (missing.Count > 0 && missing.All(IsUnresolvedReq))
+            return ($"Còn {Math.Max(c.UnresolvedCommentCount, 1)} comment – Submit sẽ tự resolve", "warn", false);
         return missing.Count == 0 ? ("Cần +2", "info", true) : ("Thiếu " + string.Join(", ", missing), "warn", false);
     }
+
+    /// <summary>Điều kiện "không còn comment chưa resolve" (No-Unresolved-Comments…).</summary>
+    private static bool IsUnresolvedReq(string name) =>
+        name.Contains("Unresolved", StringComparison.OrdinalIgnoreCase) || name.Contains("Comment", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Điều kiện submit còn thiếu, ngoài Code-Review (vd Verified).</summary>
     private static List<string> MissingRequirements(GerritClient.ChangeInfo c)
@@ -160,7 +166,12 @@ public sealed partial class AppHost
         });
     }
 
-    private static async Task<MrResult> SubmitOneAsync(GerritClient gc, GerritClient.ChangeInfo c, Action<string, LogKind> log, CancellationToken ct)
+    /// <summary>
+    /// +2 & submit 1 change. resolve: còn comment chưa resolve thì trả lời "Done" và resolve trước khi submit;
+    /// resolveBefore != null (Auto): chỉ resolve comment không mới hơn lúc reviewer +1, có comment mới hơn thì không submit.
+    /// </summary>
+    private static async Task<MrResult> SubmitOneAsync(GerritClient gc, GerritClient.ChangeInfo c, Action<string, LogKind> log, CancellationToken ct,
+        bool resolve = true, DateTime? resolveBefore = null, string resolveNote = "Done")
     {
         const string mergedByOther = "Đã merge (được submit cùng change khác)";
         var approved = false;
@@ -172,6 +183,15 @@ public sealed partial class AppHost
             if (cur.Status == "ABANDONED") return new MrResult(MrOutcome.Failed, "Change đã bị abandon");
             if (cur.WorkInProgress) return new MrResult(MrOutcome.Failed, "Change đang WIP – bỏ WIP trên Gerrit rồi submit");
 
+            var resolvedNote = "";
+            if (resolve && cur.UnresolvedCommentCount > 0)
+            {
+                var (n, skipped) = await gc.ResolveCommentsAsync(c.Project, c.Number, resolveNote, resolveBefore, ct);
+                if (n > 0) { log($"Đã resolve {n} comment", LogKind.Info); resolvedNote = $", đã resolve {n} comment"; }
+                if (skipped.Count > 0)
+                    return new MrResult(MrOutcome.NotMerged, $"Có {skipped.Count} comment mới sau lúc +1, chưa submit: {string.Join("; ", skipped.Take(5))}");
+            }
+
             if (cur.Labels?.GetValueOrDefault("Code-Review")?.Approved == null)
             {
                 await gc.ApproveAsync(c.Project, c.Number, ct);
@@ -181,7 +201,7 @@ public sealed partial class AppHost
 
             var done = await gc.SubmitAsync(c.Project, c.Number, ct);
             return done.Status == "MERGED"
-                ? new MrResult(MrOutcome.Submitted, "Đã +2 & submit")
+                ? new MrResult(MrOutcome.Submitted, "Đã +2 & submit" + resolvedNote)
                 : new MrResult(MrOutcome.Approved, $"Đã +2, đã gửi submit nhưng trạng thái là {done.Status}");
         }
         catch (OperationCanceledException)
