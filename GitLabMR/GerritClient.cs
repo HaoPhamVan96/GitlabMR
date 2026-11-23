@@ -349,6 +349,22 @@ public sealed class GerritClient : IBranchApi
         SendAsync<JsonElement>(HttpMethod.Post, $"changes/{ChangeId(project, number)}/revisions/current/review",
             new Dictionary<string, object> { ["labels"] = new Dictionary<string, int> { ["Code-Review"] = 2 } }, ct, ChangeHint);
 
+    /// <summary>Chấm Code-Review (vd +1) trên patchset hiện tại.</summary>
+    public Task<JsonElement> VoteAsync(string project, long number, int value, CancellationToken ct) =>
+        SendAsync<JsonElement>(HttpMethod.Post, $"changes/{ChangeId(project, number)}/revisions/current/review",
+            new Dictionary<string, object> { ["labels"] = new Dictionary<string, int> { ["Code-Review"] = value } }, ct, ChangeHint);
+
+    public sealed class ChangeMessage
+    {
+        public Account? Author { get; set; }
+        public string? Date { get; set; }
+        public string? Message { get; set; }
+        [JsonPropertyName("_revision_number")] public int? RevisionNumber { get; set; }
+    }
+
+    public Task<List<ChangeMessage>> GetMessagesAsync(string project, long number, CancellationToken ct) =>
+        SendAsync<List<ChangeMessage>>(HttpMethod.Get, $"changes/{ChangeId(project, number)}/messages", null, ct, ChangeHint);
+
     public Task<ChangeInfo> SubmitAsync(string project, long number, CancellationToken ct) =>
         SendAsync<ChangeInfo>(HttpMethod.Post, $"changes/{ChangeId(project, number)}/submit", new Dictionary<string, object>(), ct, ChangeHint);
 

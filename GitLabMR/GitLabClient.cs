@@ -114,6 +114,13 @@ public sealed class GlCommit
 public sealed class GlCompare
 {
     public List<GlCommit> Commits { get; set; } = new();
+    public List<GlDiff> Diffs { get; set; } = new();
+}
+
+public sealed class GlDiff
+{
+    public string NewPath { get; set; } = "";
+    public string Diff { get; set; } = "";
 }
 
 public sealed class GlMergeRequest
@@ -278,6 +285,14 @@ public sealed class GitLabClient : IBranchApi
     public Task<GlCompare> CompareAsync(long projectId, string from, string to, CancellationToken ct) =>
         SendAsync<GlCompare>(HttpMethod.Get,
             $"projects/{projectId}/repository/compare?from={Esc(from)}&to={Esc(to)}", null, ct);
+
+    /// <summary>File có dòng thêm vào mang dấu conflict (&lt;&lt;&lt;&lt;&lt;&lt;&lt; / &gt;&gt;&gt;&gt;&gt;&gt;&gt;) trong branch so với target.</summary>
+    public async Task<List<string>> ConflictMarkersAsync(long projectId, string target, string branch, CancellationToken ct)
+    {
+        var cmp = await CompareAsync(projectId, target, branch, ct);
+        return cmp.Diffs.Where(d => d.Diff.Split('\n').Any(l => l.StartsWith("+<<<<<<< ") || l.StartsWith("+>>>>>>> ") || l == "+<<<<<<<" || l == "+>>>>>>>"))
+            .Select(d => d.NewPath).Distinct().ToList();
+    }
 
     public async Task<GlMergeRequest?> FindOpenMrAsync(long projectId, string source, string target, CancellationToken ct)
     {

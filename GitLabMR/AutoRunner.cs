@@ -33,6 +33,10 @@ public sealed partial class AppHost
         public DateTime? LastRun, LastFull, LastDelta;
         public int DevCount;
         public string LastText = "", GlText = "";
+        public readonly List<OtpFix> Otps = new();                   // conflict chờ member fix (khoá bằng lock Jobs)
+        public readonly List<ZaloSeen> Seen = new();                 // tin nhắn bot vừa nhận (cho "Lấy chat ID")
+        public bool Listening;                                       // luồng nghe Zalo đang chạy
+        public string? GcSelf;                                       // username Gerrit của mình
         public bool LastError;
         public bool Restored;                                        // đã nạp việc đang chờ từ file
         public GerritClient? Gc; public string GcKey = "";
@@ -103,6 +107,8 @@ public sealed partial class AppHost
                 catch (OperationCanceledException) { break; }
             }
         });
+        // Nghe tin nhắn Zalo: lệnh "<branch> <OTP>" merge branch fix conflict
+        StartZaloListener(ws, a, cts.Token);
     }
 
     private static void WakeGitLab(AutoState a)
@@ -138,7 +144,7 @@ public sealed partial class AppHost
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
-            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve,
+            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword,
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
             running = a.Loop != null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
@@ -167,6 +173,8 @@ public sealed partial class AppHost
         f.NotifySuccess = Bool(m, "notifySuccess");
         f.NotifyPipeline = Bool(m, "notifyPipeline");
         f.AutoResolve = Bool(m, "autoResolve");
+        f.PlusOneOnVeto = Bool(m, "plusOneOnVeto");
+        f.PlusOneKeyword = Str(m, "plusOneKeyword") is { Length: > 0 } kw ? kw : "IgnoreQueryFilter";
         f.ConflictFix = Bool(m, "conflictFix");
         f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";
         f.ClaudePath = Str(m, "claudePath") is { Length: > 0 } cp ? cp : null;
@@ -220,6 +228,15 @@ public sealed partial class AppHost
     {
         var token = ZaloTokenOf(typed);
         Send(new { type = "toast", text = "Đang chờ tin nhắn… nhắn riêng cho bot, hoặc trong nhóm gõ @ chọn tên bot rồi nhắn" });
+        var a = AutoOf(_ws.Id);
+        if (a.Listening && typed.Length == 0)
+        {
+            // Luồng nghe đang đọc tin của bot: lấy từ đó, không gọi getUpdates song song
+            var s = await WaitSeenAsync(a, TimeSpan.FromSeconds(25)) ?? throw new GitLabException("Chưa thấy tin nhắn nào tới bot – nhắn cho bot rồi bấm lại.");
+            Log($"[Zalo] Chat ID {s.ChatId} · {s.ChatType} · {s.ChatName}: \"{s.Text}\"", LogKind.Info);
+            Send(new { type = "zaloChat", id = s.ChatId, chatType = s.ChatType, name = s.ChatName });
+            return;
+        }
         var chats = await Zalo.GetRecentChatsAsync(token, _life.Token);
         if (chats.Count == 0) throw new GitLabException("Chưa thấy tin nhắn nào tới bot – nhắn cho bot rồi bấm lại.");
         var c = chats[0];
@@ -322,6 +339,7 @@ public sealed partial class AppHost
     {
         public List<AutoJob> Jobs { get; set; } = new();
         public List<PipeWatch> Pipes { get; set; } = new();
+        public List<OtpFix> Otps { get; set; } = new();
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions WorkJs = new() { IncludeFields = true };
@@ -334,9 +352,9 @@ public sealed partial class AppHost
         try
         {
             SavedWork w;
-            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList() };
+            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList(), Otps = a.Otps.ToList() };
             var path = WorkFile(wsId);
-            if (w.Jobs.Count == 0 && w.Pipes.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
+            if (w.Jobs.Count == 0 && w.Pipes.Count == 0 && w.Otps.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(w, WorkJs));
@@ -359,6 +377,7 @@ public sealed partial class AppHost
             {
                 foreach (var j in w.Jobs) if (!a.Jobs.Any(x => x.Project.Id == j.Project.Id && x.Source == j.Source && x.Target == j.Target)) a.Jobs.Add(j);
                 foreach (var pw in w.Pipes) if (!a.Pipes.Any(x => x.Project.Id == pw.Project.Id && x.Iid == pw.Iid)) a.Pipes.Add(pw);
+                foreach (var o in w.Otps) if (DateTime.Now - o.Created <= OtpLife && !a.Otps.Any(x => x.Otp == o.Otp)) a.Otps.Add(o);
             }
             if (w.Jobs.Count + w.Pipes.Count > 0)
                 Log($"[Auto {ws.Name}] Tiếp tục theo dõi {w.Jobs.Count} MR, {w.Pipes.Count} pipeline từ lần chạy trước", LogKind.Info);
@@ -394,6 +413,11 @@ public sealed partial class AppHost
             if (a.Handled.TryGetValue(key, out var done) && done == rev) continue;
 
             var votes = c.Labels?.GetValueOrDefault("Code-Review")?.All ?? new();
+            if (f.PlusOneOnVeto && f.PlusOneKeyword.Trim().Length > 0
+                && Matches(f.Owners, c.Owner?.Username, c.Owner?.Email, c.Owner?.Name)
+                && votes.FirstOrDefault(v => v.Value <= -2 && Matches(f.Reviewers, v.Username, v.Email, v.Name)) is { } veto
+                && a.Noted.Add($"p1|{key}|{rev}"))
+                await PlusOneOnVetoAsync(ws, a, gc, c, votes, veto, ct);
             var by = votes.FirstOrDefault(v => v.Value >= 1 && Matches(f.Reviewers, v.Username, v.Email, v.Name));
             if (by == null) continue;                                          // reviewer chưa +1
             if (!Matches(f.Owners, c.Owner?.Username, c.Owner?.Email, c.Owner?.Name)) continue;
@@ -480,6 +504,37 @@ public sealed partial class AppHost
         a.LastDelta = started;
         return $"{a.DevCount} change của dev" + (!full && changes.Count > 0 ? $" ({changes.Count} vừa cập nhật)" : "")
                + (submitted > 0 ? $", vừa submit {submitted}" : "");
+    }
+
+    /// <summary>Reviewer −2 mà lý do (tin nhắn / comment của họ) có từ khoá cấu hình (vd IgnoreQueryFilter): mình +1.</summary>
+    private async Task PlusOneOnVetoAsync(Workspace ws, AutoState a, GerritClient gc, GerritClient.ChangeInfo c,
+        List<GerritClient.ApprovalInfo> votes, GerritClient.ApprovalInfo veto, CancellationToken ct)
+    {
+        var f = ws.Auto!;
+        var tag = $"[Auto {ws.Name}]";
+        var label = $"{c.Project} #{c.Number}";
+        var kw = f.PlusOneKeyword.Trim();
+        try
+        {
+            a.GcSelf ??= await gc.GetSelfAsync(ct);
+            if (votes.Any(v => v.Value >= 1 && string.Equals(v.Username, a.GcSelf, StringComparison.OrdinalIgnoreCase))) return; // đã +1 rồi
+            bool ByVeto(GerritClient.Account? x) => x != null && Matches(new() { veto.Username ?? veto.Name ?? "" }, x.Username, x.Email, x.Name);
+            var msgs = await gc.GetMessagesAsync(c.Project, c.Number, ct);
+            var hit = msgs.Any(m => ByVeto(m.Author) && m.Message?.Contains(kw, StringComparison.OrdinalIgnoreCase) == true);
+            if (!hit)
+                hit = (await gc.GetCommentsAsync(c.Project, c.Number, ct)).Any(m => ByVeto(m.Author) && m.Message?.Contains(kw, StringComparison.OrdinalIgnoreCase) == true);
+            if (!hit) return;
+            var who = veto.Username ?? veto.Name ?? "reviewer";
+            if (f.DryRun) { Log($"{tag} [Thử] Sẽ +1 {label} ({who} −2 vì {kw})", LogKind.Success); return; }
+            await gc.VoteAsync(c.Project, c.Number, 1, ct);
+            Log($"{tag} {label}: {who} −2 vì {kw} → đã +1", LogKind.Success);
+            await NotifyAsync(ws, $"Đã +1 ({who} −2 vì {kw})", $"{label}: {c.Subject}\nDev: {c.Owner?.Name ?? c.Owner?.Username}", gc.ChangeUrl(c.Project, c.Number));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            a.Noted.Remove($"p1|{ChangeKey(c.Project, c.Number)}|{c.CurrentRevision ?? c.Updated ?? ""}"); // lỗi tạm: thử lại lượt sau
+            Once(a, "p1err|" + Describe(ex), $"{tag} {label}: chưa +1 được – {Describe(ex)}", LogKind.Warn);
+        }
     }
 
     private static bool Matches(List<string> who, params string?[] ids) =>
@@ -638,7 +693,8 @@ public sealed partial class AppHost
                 {
                     var conflict = res.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase);
                     if (conflict && f.ConflictFix && IsFixTarget(job.Target)) StartConflictFix(ws, a, g.Value.Ws, g.Value.Gl, p, job.Source, job.Target, changes, res.Url);
-                    else await AlertAsync(ws, conflict ? "Conflict trên GitLab – cần fix" : "GitLab chưa merge được", $"{label}\n{res.Message}", res.Url);
+                    else await AlertAsync(ws, conflict ? "Conflict trên GitLab – cần fix" : "GitLab chưa merge được", $"{label}\n{res.Message}"
+                        + (conflict ? OtpHint(ws, a, p, job.Source, job.Target, label, changes, null) : ""), res.Url);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -687,7 +743,7 @@ public sealed partial class AppHost
                 {
                     await AlertAsync(ws, "Auto-fix conflict không được – cần fix tay",
                         $"{label}\nGerrit {changes}\n{res.Message}" + (res.Files.Count > 0 ? $"\nFile: {FileList(res.Files)}" : "")
-                        + (res.Summary is { } s0 ? $"\nClaude: {s0}" : ""), mrUrl);
+                        + (res.Summary is { } s0 ? $"\nClaude: {s0}" : "") + OtpHint(ws, a, p, source, target, label, changes, null), mrUrl);
                     return;
                 }
 
@@ -703,7 +759,7 @@ public sealed partial class AppHost
                     WakeGitLab(a);
                 }
                 if (!res.Safe && mr.Outcome is MrOutcome.Created or MrOutcome.AlreadyOpen)
-                    await AlertAsync(ws, "Đã fix conflict nhưng chưa merge – cần duyệt", $"{text}\nApp không tự merge: xem diff MR rồi merge tay.", mr.Url);
+                    await AlertAsync(ws, "Đã fix conflict nhưng chưa merge – cần duyệt", $"{text}\nApp không tự merge: xem diff MR rồi merge tay." + OtpHint(ws, a, p, source, target, label, changes, fix), mr.Url);
                 else if (mr.Outcome == MrOutcome.Merged)
                 {
                     L($"Auto-fix conflict xong, {mr.Message}", LogKind.Success);
@@ -712,13 +768,13 @@ public sealed partial class AppHost
                 else if (mr.Outcome is MrOutcome.AutoMerge or MrOutcome.Created or MrOutcome.AlreadyOpen)
                     await NotifyAsync(ws, "Đã auto-fix conflict, MR chưa merge", $"{text}\n{mr.Message}", mr.Url, pending: true);
                 else
-                    await AlertAsync(ws, "Auto-fix conflict xong nhưng chưa merge được", $"{text}\n{mr.Message}", mr.Url ?? mrUrl);
+                    await AlertAsync(ws, "Auto-fix conflict xong nhưng chưa merge được", $"{text}\n{mr.Message}" + OtpHint(ws, a, p, source, target, label, changes, fix), mr.Url ?? mrUrl);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 await AlertAsync(ws, told ? "Auto-fix conflict lỗi – cần fix tay" : "Conflict trên GitLab – auto-fix lỗi",
-                    $"{label}\n{Describe(ex)}", mrUrl);
+                    $"{label}\n{Describe(ex)}" + OtpHint(ws, a, p, source, target, label, changes, null), mrUrl);
             }
             finally { lock (a.Fixing) a.Fixing.Remove(key); }
         });

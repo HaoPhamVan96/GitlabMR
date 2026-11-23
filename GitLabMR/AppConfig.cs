@@ -75,6 +75,9 @@ public sealed class AutoFlow
     public bool NotifyPipeline { get; set; } = true;
     /// <summary>Còn comment chưa resolve (viết trước lúc reviewer +1) thì tự trả lời "Done", resolve rồi submit.</summary>
     public bool AutoResolve { get; set; } = true;
+    /// <summary>Reviewer cho −2 mà lý do có từ khoá (vd IgnoreQueryFilter) trên change của dev: app tự +1.</summary>
+    public bool PlusOneOnVeto { get; set; } = true;
+    public string PlusOneKeyword { get; set; } = "IgnoreQueryFilter";
     /// <summary>Conflict MR GitLab: tạo branch trung gian (từ branch nguồn, merge branch đích vào), nhờ Claude Code sửa, rồi merge branch đó.</summary>
     public bool ConflictFix { get; set; }
     /// <summary>Tên branch trung gian: {branch} = branch nguồn, {target} = branch đích.</summary>

@@ -35,6 +35,9 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
     rồi commit `merge branch {branch} to testing2` (author = git user của máy) và push branch đó. Không có conflict Nặng, tự tin ≥ 70% thì tạo MR & merge, ngược lại chỉ tạo MR và báo cần duyệt.
     Báo 2 lần: có conflict (kèm danh sách file) và kết quả fix. Branch fix cũ đã có trên GitLab (kể cả commit khác) thì app tạo lại từ đầu và ghi đè. Cần cài Claude Code và đăng nhập 1 lần (chạy `claude` trong terminal), bấm **Kiểm tra** để thử.
     **Tự resolve comment** (mặc định bật): reviewer đã +1 mà còn comment chưa resolve thì app trả lời "Done" cho các comment viết trước lúc +1 rồi submit và báo Zalo; comment mới hơn lúc +1 thì không đụng, báo ⏳ và chờ dev resolve. Tắt thì chỉ báo ⏳.
+    **Fix conflict qua Zalo:** tin báo conflict (chưa tự merge được) kèm **mã fix** 6 ký tự (dùng 1 lần, hết hạn sau 3 ngày). Member fix trên 1 branch riêng (không merge môi trường vào branch feature), push lên GitLab rồi reply bot `<branch> <mã>`:
+    app kiểm tra branch còn dấu conflict không, tạo / dùng lại MR branch → môi trường, merge, báo kết quả và theo dõi pipeline. Chỉ nhận lệnh từ nhóm / người đã cấu hình trong Zalo Bot.
+    **Tự +1 khi reviewer −2 vì từ khoá** (mặc định `IgnoreQueryFilter`): reviewer ở trên cho −2 trên change của account dev, lý do (tin nhắn / comment của reviewer) có từ khoá đó thì app Code-Review +1 và báo Zalo.
     Bật **Chạy thử** để chỉ ghi vào Nhật ký những gì sẽ làm. Auto chỉ chạy khi app đang mở; tab Gerrit có Auto đang bật hiện dấu ⚡.
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
@@ -112,6 +115,7 @@ Sửa `Exclude` để đổi danh sách project bị ẩn (so khớp chuỗi con
 | `GitLabMR/GerritReview.cs` | Gerrit chế độ MR: tải change đang mở, +2 & submit hàng loạt |
 | `GitLabMR/AutoRunner.cs` | Auto submit: quét định kỳ, reviewer +1 → +2 & submit → tạo / merge MR GitLab |
 | `GitLabMR/ConflictFixer.cs` | Auto-fix conflict testing2: branch `_fix_conflict`, gọi Claude Code CLI sửa, commit & push |
+| `GitLabMR/ZaloBot.cs` | Nghe tin nhắn Zalo Bot: lệnh `<branch> <mã fix>` merge branch fix conflict, Lấy chat ID |
 | `GitLabMR/Zalo.cs` | Gửi thông báo Zalo Bot (sendMessage, lấy chat ID qua getUpdates) |
 | `GitLabMR/Updater.cs` | Tự cập nhật (Velopack) / báo có bản mới |
 | `GitLabMR/Platform.cs` | Token (DPAPI/Keychain), clipboard, mở link theo từng OS |

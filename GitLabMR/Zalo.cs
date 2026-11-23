@@ -38,20 +38,23 @@ public static class Zalo
         return CallAsync(token, "sendMessage", new { chat_id = chatId.Trim(), text }, ct);
     }
 
-    /// <summary>Các cuộc trò chuyện vừa nhắn cho bot (mới nhất trước). Trống = chưa ai nhắn trong lúc chờ.</summary>
-    public static async Task<List<Chat>> GetRecentChatsAsync(string token, CancellationToken ct)
+    /// <summary>1 tin nhắn tới bot.</summary>
+    public sealed record Update(string ChatId, string ChatType, string ChatName, string FromName, string Text);
+
+    /// <summary>Tin nhắn mới tới bot (cũ trước). Chờ tối đa ~20 giây; trống = không có tin nào. Mỗi tin chỉ đọc được 1 lần.</summary>
+    public static async Task<List<Update>> GetUpdatesAsync(string token, CancellationToken ct)
     {
         JsonElement result;
         try { result = await CallAsync(token, "getUpdates", new { timeout = "20" }, ct); }
         catch (GitLabException ex) when (ex.Message.Contains("mã 408")) { return new(); } // hết thời gian chờ mà chưa có tin nào
         var updates = result.ValueKind == JsonValueKind.Array ? result.EnumerateArray().ToList()
             : result.ValueKind == JsonValueKind.Object ? new List<JsonElement> { result } : new();
-        var chats = new List<Chat>();
-        foreach (var u in updates.AsEnumerable().Reverse())
+        var list = new List<Update>();
+        foreach (var u in updates)
         {
             if (!u.TryGetProperty("message", out var m) || !m.TryGetProperty("chat", out var chat)) continue;
             var id = chat.TryGetProperty("id", out var i) ? i.ToString() : "";
-            if (id.Length == 0 || chats.Any(x => x.Id == id)) continue;
+            if (id.Length == 0) continue;
             var type = chat.TryGetProperty("chat_type", out var t) ? t.ToString() : "";
             var sender = m.TryGetProperty("from", out var f) && f.TryGetProperty("display_name", out var n) ? n.ToString() : "";
             // Tên nhóm nếu Zalo có gửi kèm, không thì lấy tên người nhắn
@@ -60,8 +63,17 @@ public static class Zalo
                 .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
             var name = title ?? (type.Equals("GROUP", StringComparison.OrdinalIgnoreCase) ? (sender.Length > 0 ? $"Nhóm ({sender} nhắn)" : "Nhóm") : sender);
             var msg = m.TryGetProperty("text", out var tx) ? tx.ToString() : "";
-            chats.Add(new Chat(id, type, name, msg));
+            list.Add(new Update(id, type, name, sender, msg));
         }
+        return list;
+    }
+
+    /// <summary>Các cuộc trò chuyện vừa nhắn cho bot (mới nhất trước). Trống = chưa ai nhắn trong lúc chờ.</summary>
+    public static async Task<List<Chat>> GetRecentChatsAsync(string token, CancellationToken ct)
+    {
+        var chats = new List<Chat>();
+        foreach (var u in (await GetUpdatesAsync(token, ct)).AsEnumerable().Reverse())
+            if (!chats.Any(x => x.Id == u.ChatId)) chats.Add(new Chat(u.ChatId, u.ChatType, u.ChatName, u.Text));
         return chats;
     }
 }
