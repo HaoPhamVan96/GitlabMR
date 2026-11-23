@@ -144,7 +144,7 @@ public sealed partial class AppHost
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
-            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword,
+            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword, sassyBot = f.SassyBot,
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
             running = a.Loop != null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
@@ -174,6 +174,7 @@ public sealed partial class AppHost
         f.NotifyPipeline = Bool(m, "notifyPipeline");
         f.AutoResolve = Bool(m, "autoResolve");
         f.PlusOneOnVeto = Bool(m, "plusOneOnVeto");
+        f.SassyBot = Bool(m, "sassyBot");
         f.PlusOneKeyword = Str(m, "plusOneKeyword") is { Length: > 0 } kw ? kw : "IgnoreQueryFilter";
         f.ConflictFix = Bool(m, "conflictFix");
         f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";

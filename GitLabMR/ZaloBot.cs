@@ -100,7 +100,14 @@ public sealed partial class AppHost
                 var codes = Regex.Matches(u.Text, @"\b[A-Za-z0-9]{6}\b").Select(m => m.Value).ToList();
                 var only = codes.Select(cd => a.Otps.FirstOrDefault(x => x.Otp.Equals(cd, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(x => x != null);
                 if (only != null) { _ = Reply($"Thiếu branch. Cú pháp: <branch> {only.Otp}"); return; }
-                return; // tin nhắn thường: bỏ qua
+                // Tag / reply bot mà sai cú pháp: bot đanh đá đáp lại người đó (bật / tắt trong popup Zalo), mỗi nơi tối đa 1 câu / 2 phút
+                if (ws.Auto?.SassyBot == true && (!Sass.TryGetValue(u.ChatId, out var last) || DateTime.Now - last > SassGap))
+                {
+                    Sass[u.ChatId] = DateTime.Now;
+                    var looksLikeCode = codes.Any(cd => cd.Any(char.IsDigit) && cd.Any(char.IsLetter));
+                    _ = Reply(SassLine(u.ChatId, u.FromName, looksLikeCode, a.Otps.Count > 0));
+                }
+                return;
             }
         }
         var who = u.FromName.Length > 0 ? u.FromName : "member";
@@ -144,6 +151,47 @@ public sealed partial class AppHost
         catch (OperationCanceledException) { }
         catch (Exception ex) { try { await Reply($"Lỗi khi merge {branch}: {Describe(ex)}"); } catch { } }
         finally { lock (a.Fixing) a.Fixing.Remove(key); }
+    }
+
+    // ---------------------------------------------------------------- bot đanh đá (cho vui)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> Sass = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> SassLast = new();
+    private static readonly TimeSpan SassGap = TimeSpan.FromMinutes(2);
+
+    private static readonly string[] SassWrongCode =
+    {
+        "Mã gì đây {name}? Bổn bot không nhận hàng giả nha 😤",
+        "{name} gõ mã kiểu gì vậy? Sai, hết hạn, hoặc dùng rồi. Đọc lại tin báo giùm cái 🙄",
+        "Mã này bổn bot không quen. {name} bịa ra đó hả? 😒",
+        "Sai mã rồi {name}. Không phải bổn bot khó tính, là {name} gõ ẩu thôi 💅",
+        "Mã đó hết đát rồi {name} ơi, như lời hứa fix bug của ai đó vậy 🫠",
+    };
+    private static readonly string[] SassNoConflict =
+    {
+        "Có conflict nào đâu mà {name} gọi? Rảnh quá thì đi viết unit test đi 🙄",
+        "{name} tag bổn bot làm gì? Đang yên đang lành, không có gì để merge cả 💅",
+        "Không có conflict, không có việc, không có chuyện để nói với {name} 😌",
+        "Gọi hoài vậy {name}? Conflict còn chưa có mà đã đòi merge, mơ đi 😏",
+    };
+    private static readonly string[] SassGeneric =
+    {
+        "Tag bổn bot mà không kèm mã fix, tưởng bổn bot rảnh lắm à {name}? 🙄 Cú pháp: <branch> <mã>",
+        "{name} ơi, cú pháp là <branch> <mã>. Nói mãi không thuộc hả? 😤",
+        "Bổn bot chỉ merge, không tám chuyện. Biết điều thì gửi <branch> <mã> nha {name} 💅",
+        "Đọc lại tin báo conflict giùm cái {name}, mã nằm sờ sờ ra đó 😒",
+        "Lại là {name}... Lần thứ mấy rồi? Gửi đúng <branch> <mã> giùm 🫠",
+        "Nói chuyện với bổn bot thì phải có mã. Không mã, không merge, không tiếp {name} 😌",
+    };
+
+    /// <summary>Câu đanh đá ngẫu nhiên (không lặp lại câu vừa nói ở cùng nhóm), mở đầu bằng tên người tag.</summary>
+    private static string SassLine(string chatId, string name, bool wrongCode, bool hasPending)
+    {
+        var pool = wrongCode && hasPending ? SassWrongCode : !hasPending ? SassNoConflict : SassGeneric;
+        var prev = SassLast.GetValueOrDefault(chatId);
+        var pick = pool.Where(x => x != prev).ElementAt(RandomNumberGenerator.GetInt32(pool.Count(x => x != prev)));
+        SassLast[chatId] = pick;
+        var who = string.IsNullOrWhiteSpace(name) ? "bạn" : name.Trim();
+        return $"↩ {who}: " + pick.Replace("{name}", who);
     }
 
     /// <summary>"Lấy chat ID" khi luồng nghe đang chạy: chờ tin mới mà luồng nghe thấy.</summary>

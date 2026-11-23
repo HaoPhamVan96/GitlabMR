@@ -414,6 +414,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
       <button id="aZaloGet" class="btn sm" title="Bấm rồi trong 20 giây: nhắn riêng cho bot, hoặc trong nhóm gõ @ chọn tên bot rồi nhắn – app thêm cuộc trò chuyện đó vào danh sách">+ Lấy chat ID</button>
       <button id="aZaloTest" class="btn sm" title="Gửi 1 tin thử tới mọi nơi trong danh sách">Gửi thử</button></div>
     <div id="zList"></div>
+    <label class="mini" style="margin-top:8px" title="Tag hoặc reply bot mà sai cú pháp: bot đáp lại người đó bằng 1 câu đanh đá ngẫu nhiên (mỗi nhóm tối đa 1 câu / 2 phút)"><input id="aSassy" type="checkbox" class="chk"> Bot đanh đá khi tag sai cú pháp 😤</label>
     <div id="zEmpty">Chưa có. Bấm <b>+ Lấy chat ID</b> rồi trong 20 giây @ bot trong nhóm (hoặc nhắn riêng cho bot).</div>
     <div class="act"><button id="zClose" class="btn">Đóng</button><button id="zSave" class="btn primary">Lưu</button></div>
   </div>
@@ -549,6 +550,7 @@ function renderAuto(a) {
   $('#aZalo').value = '';
   $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
   S.zaloChats = (a.zaloChats || []).map(c => ({ id: c.id, name: c.name || '', type: c.type || '' }));
+  $('#aSassy').checked = a.sassyBot ?? true;
   renderZalo();
   fillAutoWs(a.gitlabWs || '');
   autoStateText();
@@ -572,7 +574,7 @@ function autoPayload() {
 }
 function zaloPayload() {
   const t = $('#aZalo').value.trim();
-  return { zaloToken: t === '-' ? '' : t, zaloChats: (S.zaloChats || []).map(c => ({ id: c.id, name: c.name.trim(), type: c.type })) };
+  return { sassyBot: $('#aSassy').checked, zaloToken: t === '-' ? '' : t, zaloChats: (S.zaloChats || []).map(c => ({ id: c.id, name: c.name.trim(), type: c.type })) };
 }
 function renderZalo() {
   const cs = S.zaloChats || [];

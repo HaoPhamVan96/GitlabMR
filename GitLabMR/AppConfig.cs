@@ -77,6 +77,8 @@ public sealed class AutoFlow
     public bool AutoResolve { get; set; } = true;
     /// <summary>Reviewer cho −2 mà lý do có từ khoá (vd IgnoreQueryFilter) trên change của dev: app tự +1.</summary>
     public bool PlusOneOnVeto { get; set; } = true;
+    /// <summary>Tag / reply bot Zalo sai cú pháp: bot đáp lại đanh đá (cho vui).</summary>
+    public bool SassyBot { get; set; } = true;
     public string PlusOneKeyword { get; set; } = "IgnoreQueryFilter";
     /// <summary>Conflict MR GitLab: tạo branch trung gian (từ branch nguồn, merge branch đích vào), nhờ Claude Code sửa, rồi merge branch đó.</summary>
     public bool ConflictFix { get; set; }
