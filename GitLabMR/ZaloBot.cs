@@ -25,7 +25,6 @@ public sealed partial class AppHost
 
     private static readonly TimeSpan OtpLife = TimeSpan.FromDays(3);
     private const string OtpChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // bỏ 0/O, 1/I dễ nhầm
-    private static readonly Regex CmdRx = new(@"(?<br>[^\s@]+)\s+(?<otp>[A-Za-z0-9]{6})(?=\s|$)", RegexOptions.Compiled);
 
     /// <summary>Tạo OTP cho 1 conflict, trả về dòng hướng dẫn để gắn vào tin báo (trống nếu chưa cấu hình Zalo).</summary>
     private string OtpHint(Workspace ws, AutoState a, GlProject p, string source, string target, string label, string changes, string? suggest)
@@ -82,10 +81,18 @@ public sealed partial class AppHost
         lock (a.Jobs)
         {
             a.Otps.RemoveAll(x => DateTime.Now - x.Created > OtpLife);
-            foreach (Match m in CmdRx.Matches(u.Text))
+            // Reply tin bot hoặc @tag bot đều được; mã và branch đứng trước / sau đều được
+            var words = u.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Select(w => w.Trim('`', '"', '\'', '<', '>', ',', ';')).Where(w => w.Length > 0).ToList();
+            for (var i = 0; i < words.Count && o == null; i++)
             {
-                var hit = a.Otps.FirstOrDefault(x => x.Otp.Equals(m.Groups["otp"].Value, StringComparison.OrdinalIgnoreCase));
-                if (hit != null) { o = hit; branch = m.Groups["br"].Value.Trim('`', '"', '\'', '<', '>'); break; }
+                var hit = a.Otps.FirstOrDefault(x => x.Otp.Equals(words[i], StringComparison.OrdinalIgnoreCase));
+                if (hit == null) continue;
+                var rest = words.Where((w, j) => j != i && !w.StartsWith('@')).ToList();
+                branch = rest.FirstOrDefault(w => w.Contains('/'))                 // branch thường có dấu /
+                         ?? (i > 0 && !words[i - 1].StartsWith('@') ? words[i - 1] : null)
+                         ?? (i + 1 < words.Count ? words[i + 1] : null);
+                if (branch != null) o = hit;
             }
             if (o == null)
             {
