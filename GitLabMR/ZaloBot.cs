@@ -100,10 +100,10 @@ public sealed partial class AppHost
                 var codes = Regex.Matches(u.Text, @"\b[A-Za-z0-9]{6}\b").Select(m => m.Value).ToList();
                 var only = codes.Select(cd => a.Otps.FirstOrDefault(x => x.Otp.Equals(cd, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(x => x != null);
                 if (only != null) { _ = Reply($"Thiếu branch. Cú pháp: <branch> {only.Otp}"); return; }
-                // Tag / reply bot mà sai cú pháp: bot đanh đá đáp lại người đó (bật / tắt trong popup Zalo), mỗi nơi tối đa 1 câu / 2 phút
-                if (ws.Auto?.SassyBot == true && (!Sass.TryGetValue(u.ChatId, out var last) || DateTime.Now - last > SassGap))
+                // Tag / reply bot mà sai cú pháp: bot đanh đá đáp lại người đó (bật / tắt trong popup Zalo), tag lần nào đáp lần đó (mỗi người chờ 5 giây giữa 2 câu, chống gửi dồn)
+                if (ws.Auto?.SassyBot == true && (!Sass.TryGetValue(u.ChatId + "|" + u.FromName, out var last) || DateTime.Now - last > SassGap))
                 {
-                    Sass[u.ChatId] = DateTime.Now;
+                    Sass[u.ChatId + "|" + u.FromName] = DateTime.Now;
                     var looksLikeCode = codes.Any(cd => cd.Any(char.IsDigit) && cd.Any(char.IsLetter));
                     _ = Reply(SassLine(u.ChatId, u.FromName, looksLikeCode, a.Otps.Count > 0));
                 }
@@ -156,7 +156,7 @@ public sealed partial class AppHost
     // ---------------------------------------------------------------- bot đanh đá (cho vui)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> Sass = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> SassLast = new();
-    private static readonly TimeSpan SassGap = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan SassGap = TimeSpan.FromSeconds(5);
 
     private static readonly string[] SassWrongCode =
     {
