@@ -263,9 +263,14 @@ public sealed class GerritClient : IBranchApi
     public async Task<byte[]> GetFileContentAsync(string project, long number, string path, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, $"changes/{ChangeId(project, number)}/revisions/current/files/{Esc(path)}/content");
+        // Client mặc định gửi Accept: application/json → Gerrit trả JSON ()]}' + "base64") thay vì base64 trơn: xin text/plain, vẫn đọc được cả 2 dạng
+        req.Headers.Accept.Clear();
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
         using var res = await _http.SendAsync(req, ct);
         var text = (await res.Content.ReadAsStringAsync(ct)).Trim();
         if (!res.IsSuccessStatusCode) throw new GitLabException($"Không tải được {path}: HTTP {(int)res.StatusCode}", res.StatusCode);
+        if (text.StartsWith(")]}'")) text = text[4..].Trim();
+        if (text.StartsWith('"')) text = JsonSerializer.Deserialize<string>(text) ?? "";
         return Convert.FromBase64String(text);
     }
 
