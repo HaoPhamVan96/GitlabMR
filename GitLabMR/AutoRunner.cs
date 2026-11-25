@@ -77,6 +77,7 @@ public sealed partial class AppHost
 
     private void StartAllAuto()
     {
+        if (_autoPaused) return; // tạm dừng từ khay hệ thống
         foreach (var ws in _cfg.Workspaces.Where(w => w.Kind == "gerrit" && w.Auto?.Enabled == true))
             if (AutoOf(ws.Id).Loop == null) StartAuto(ws);
         WatchAutoLock();
@@ -936,6 +937,7 @@ public sealed partial class AppHost
         var f = ws.Auto;
         if (f == null) return;
         var head = $"{icon ?? (error ? "⚠️" : "✅")} {title}";
+        Remember(head, url); // cho mini popup ở khay
         var zalo = f.ZaloToken == null ? null : Platform.UnprotectToken(ws.ZaloKey, f.ZaloToken);
         if (string.IsNullOrEmpty(zalo)) return;
         var msg = $"{head} · {ws.Name}\n{text}" + (url != null ? $"\n{url}" : "");

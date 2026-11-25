@@ -18,13 +18,15 @@ internal static class Program
         // 1 máy chỉ chạy 1 app: mở lần nữa thì đưa cửa sổ đang chạy lên trước rồi thoát
         // (2 app cùng chạy Auto sẽ submit / merge / báo Zalo trùng và giành tin nhắn của bot).
         // Chờ ngắn để bản cũ kịp thoát khi tự cập nhật khởi động lại.
-        using var single = new Mutex(false, @"Local\GitLabMR.SingleInstance");
+        using var single = new Mutex(false, @"Local\GitLabMR.SingleInstance" + InstanceSuffix);
         bool owned;
         try { owned = single.WaitOne(TimeSpan.FromSeconds(3)); }
         catch (AbandonedMutexException) { owned = true; } // bản trước bị tắt ngang: vẫn nhận được
         if (!owned)
         {
-            ActivateRunning();
+            // App đang chạy (có thể đang ẩn ở khay): báo nó hiện cửa sổ lên
+            try { using var ev = EventWaitHandle.OpenExisting(ShowEventName); ev.Set(); }
+            catch { ActivateRunning(); }
             return;
         }
 
@@ -51,18 +53,56 @@ internal static class Program
             .Center();
 
         // Icon cửa sổ / taskbar (Windows cần file .ico trên đĩa; macOS lấy icon từ .app bundle)
-        if (OperatingSystem.IsWindows() && ExtractIcon() is { } iconPath) window.SetIconFile(iconPath);
+        var iconPath = OperatingSystem.IsWindows() ? ExtractIcon() : null;
+        if (iconPath != null) window.SetIconFile(iconPath);
 
         if (saved.WindowMaximized) window.SetMaximized(true);
 
         var host = new AppHost(window);
         window.RegisterSizeChangedHandler((_, size) => host.RememberWindow(size.Width, size.Height, SafeMaximized(window)));
         window.RegisterWebMessageReceivedHandler((_, message) => host.OnMessage(message));
+
+        // Windows: bấm ✕ thì ẩn xuống khay hệ thống, app vẫn chạy nền (Auto, Zalo, pipeline…). Thoát hẳn từ menu khay.
+        TrayIcon? tray = null;
+        System.Threading.Timer? refresh = null;
+        var quitting = false;
+        var told = false;
+        void ShowWin() => window.Invoke(() =>
+        {
+            var h = window.WindowHandle;
+            ShowWindow(h, 5 /*SW_SHOW*/);
+            if (IsIconic(h)) ShowWindow(h, 9 /*SW_RESTORE*/);
+            SetForegroundWindow(h);
+        });
+        void Quit() { quitting = true; window.Invoke(() => window.Close()); }
+        if (OperatingSystem.IsWindows())
+        {
+            tray = new TrayIcon(iconPath, host.TrayTooltip, () => host.TrayMenu(ShowWin, Quit), ShowWin);
+            tray.Start();
+            window.RegisterWindowClosingHandler((_, _) =>
+            {
+                if (quitting) return false;
+                ShowWindow(window.WindowHandle, 0 /*SW_HIDE*/);
+                if (!told) { told = true; tray.Balloon("GitLab MR vẫn chạy nền", "Auto vẫn quét Gerrit, merge GitLab, báo Zalo. Bấm icon ở khay để xem, chọn \"Thoát hẳn\" để tắt."); }
+                return true; // không đóng
+            });
+            // Mở app lần nữa (shortcut / Start) khi đang ẩn: hiện lại cửa sổ
+            var showEv = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+            new Thread(() => { while (showEv.WaitOne()) ShowWin(); }) { IsBackground = true, Name = "ShowSignal" }.Start();
+            refresh = new System.Threading.Timer(_ => tray.Refresh(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(15));
+        }
+
         window.LoadRawString(html);
         window.WaitForClose();
+        refresh?.Dispose();
+        tray?.Dispose();
         host.Shutdown();
         single.ReleaseMutex();
     }
+
+    private static string ShowEventName => @"Local\GitLabMR.Show" + InstanceSuffix;
+    /// <summary>Chỉ để test: GITLABMR_INSTANCE=x chạy 1 bản riêng song song với bản đang dùng.</summary>
+    private static string InstanceSuffix => Environment.GetEnvironmentVariable("GITLABMR_INSTANCE") is { Length: > 0 } x ? "." + x : "";
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);

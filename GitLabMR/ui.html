@@ -74,7 +74,9 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .brand .logo svg{width:17px;height:17px;stroke-width:2.2}
 .brand{border:0;background:none;padding:0;cursor:pointer;border-radius:8px}
 .brand:hover .logo{filter:brightness(1.08)}
-.brand .ver{font-size:11px;font-weight:600;color:var(--muted);font-family:"Cascadia Mono",Consolas,monospace}
+.brand .ver{font-size:10px;font-weight:600;color:var(--faint);font-family:"Cascadia Mono",Consolas,monospace;padding:2px 4px;border-radius:5px}
+.brand:hover .ver{color:var(--accent);background:var(--accent-soft)}
+.brand{align-self:flex-start;margin-top:-4px}
 .upd{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;flex:none;white-space:nowrap;font-size:12px;font-weight:600;
   border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent)}
 .upd svg{width:13px;height:13px;stroke-width:2.2}
@@ -306,7 +308,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 <body>
 
 <header class="top">
-  <button id="brand" class="brand" title="GitLab MR – bấm để kiểm tra cập nhật"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8.5 6.5v11M15.5 9.5c0 3-7 2.2-7 5.5"/><circle cx="8.5" cy="6.2" r="2.2"/><circle cx="8.5" cy="17.8" r="2.2"/><circle cx="15.5" cy="8.8" r="2.2"/></svg></span><span id="ver" class="ver"></span></button>
+  <button id="brand" class="brand" title="GitLab MR – bấm để kiểm tra cập nhật"><span id="ver" class="ver"></span></button>
   <nav id="wsTabs" class="wstabs"></nav>
   <button id="wsAdd" class="icon" title="Thêm workspace (GitLab / token khác)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <button id="autoBtn" class="autobtn" hidden title="Cấu hình Auto submit / merge của tab Gerrit này"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Auto</button>
@@ -1054,7 +1056,9 @@ const H = {
   },
   wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); fillAutoWs($('#aGl').value || S.auto?.gitlabWs || ''); },
   autoState(d) { if (d.wsId !== S.wsActive) return; S.auto = { ...S.auto, ...d.auto };
-    if (S.autoSaving) { S.autoSaving = false; $('#autoDlg').hidden = true; $('#xlSelPop').hidden = true; } // Lưu xong: đóng popup autoStateText(); renderWsTabs(); if ($('#zModal').hidden) renderZalo(); },
+    if (S.autoSaving) { S.autoSaving = false; $('#autoDlg').hidden = true; $('#xlSelPop').hidden = true; } // Lưu xong: đóng popup
+    autoStateText(); renderWsTabs(); if ($('#zModal').hidden) renderZalo();
+  },
   toast(d) { toast(d.text, d.err); },
   zaloChat(d) {
     const cs = S.zaloChats || (S.zaloChats = []);
