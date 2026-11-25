@@ -79,6 +79,10 @@ public sealed class AutoFlow
     public bool PlusOneOnVeto { get; set; } = true;
     /// <summary>Tag / reply bot Zalo sai cú pháp: bot đáp lại đanh đá (cho vui).</summary>
     public bool SassyBot { get; set; } = true;
+    /// <summary>Change có file Excel sinh bằng code (chưa save lại bằng Excel): −2 + comment nhắc save lại, save xong tự gỡ −2.</summary>
+    public bool XlsxGuard { get; set; } = true;
+    /// <summary>Chỉ quét file Excel ở các repo này (tên ngắn vd core-pr hoặc đường dẫn đầy đủ); trống = mọi repo của tab.</summary>
+    public List<string> XlsxRepos { get; set; } = new();
     public string PlusOneKeyword { get; set; } = "IgnoreQueryFilter";
     /// <summary>Conflict MR GitLab: tạo branch trung gian (từ branch nguồn, merge branch đích vào), nhờ Claude Code sửa, rồi merge branch đó.</summary>
     public bool ConflictFix { get; set; }

@@ -37,6 +37,9 @@ public sealed partial class AppHost
         public readonly List<ZaloSeen> Seen = new();                 // tin nhắn bot vừa nhận (cho "Lấy chat ID")
         public bool Listening;                                       // luồng nghe Zalo đang chạy
         public string? GcSelf;                                       // username Gerrit của mình
+        public readonly Dictionary<string, string> XlsxChecked = new(); // change -> revision đã kiểm tra file Excel
+        public readonly HashSet<string> XlsxBlocked = new();         // change mình đã −2 vì file Excel (khoá bằng lock Jobs)
+        public DateTime? XlsxDelta;
         public bool LastError;
         public bool Restored;                                        // đã nạp việc đang chờ từ file
         public GerritClient? Gc; public string GcKey = "";
@@ -184,7 +187,7 @@ public sealed partial class AppHost
         a.Handled.Clear();
         a.Noted.Clear();
         // Giữ MR / pipeline đang chờ: Gerrit đã submit rồi, đổi cấu hình không được làm mất thông báo
-        a.LastFull = a.LastDelta = null;
+        a.LastFull = a.LastDelta = a.XlsxDelta = null;
     }
 
     private object AutoView(Workspace ws)
@@ -197,7 +200,7 @@ public sealed partial class AppHost
             reviewers = string.Join(", ", f.Reviewers), owners = string.Join(", ", f.Owners),
             gitlabWs = f.GitLabWs ?? "", gitlabSource = f.GitLabSource, gitlabTarget = f.GitLabTarget ?? "",
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
-            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword, sassyBot = f.SassyBot,
+            hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword, sassyBot = f.SassyBot, xlsxGuard = f.XlsxGuard, xlsxRepos = string.Join(", ", f.XlsxRepos),
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
             running = a.Loop != null, elsewhere = f.Enabled && a.Loop == null && _autoLock == null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
@@ -228,6 +231,8 @@ public sealed partial class AppHost
         f.AutoResolve = Bool(m, "autoResolve");
         f.PlusOneOnVeto = Bool(m, "plusOneOnVeto");
         f.SassyBot = Bool(m, "sassyBot");
+        if (m["xlsxGuard"] != null) f.XlsxGuard = Bool(m, "xlsxGuard");
+        if (m["xlsxRepos"] != null) f.XlsxRepos = SplitList(Str(m, "xlsxRepos"));
         f.PlusOneKeyword = Str(m, "plusOneKeyword") is { Length: > 0 } kw ? kw : "IgnoreQueryFilter";
         f.ConflictFix = Bool(m, "conflictFix");
         f.ConflictBranch = Str(m, "conflictBranch") is { Length: > 0 } cb ? cb : "{branch}_fix_conflict";
@@ -395,6 +400,7 @@ public sealed partial class AppHost
         public List<AutoJob> Jobs { get; set; } = new();
         public List<PipeWatch> Pipes { get; set; } = new();
         public List<OtpFix> Otps { get; set; } = new();
+        public List<string> XlsxBlocked { get; set; } = new();
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions WorkJs = new() { IncludeFields = true };
@@ -407,9 +413,9 @@ public sealed partial class AppHost
         try
         {
             SavedWork w;
-            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList(), Otps = a.Otps.ToList() };
+            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList(), Otps = a.Otps.ToList(), XlsxBlocked = a.XlsxBlocked.ToList() };
             var path = WorkFile(wsId);
-            if (w.Jobs.Count == 0 && w.Pipes.Count == 0 && w.Otps.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
+            if (w.Jobs.Count == 0 && w.Pipes.Count == 0 && w.Otps.Count == 0 && w.XlsxBlocked.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(w, WorkJs));
@@ -433,6 +439,7 @@ public sealed partial class AppHost
                 foreach (var j in w.Jobs) if (!a.Jobs.Any(x => x.Project.Id == j.Project.Id && x.Source == j.Source && x.Target == j.Target)) a.Jobs.Add(j);
                 foreach (var pw in w.Pipes) if (!a.Pipes.Any(x => x.Project.Id == pw.Project.Id && x.Iid == pw.Iid)) a.Pipes.Add(pw);
                 foreach (var o in w.Otps) if (DateTime.Now - o.Created <= OtpLife && !a.Otps.Any(x => x.Otp == o.Otp)) a.Otps.Add(o);
+                a.XlsxBlocked.UnionWith(w.XlsxBlocked);
             }
             if (w.Jobs.Count + w.Pipes.Count > 0)
                 Log($"[Auto {ws.Name}] Tiếp tục theo dõi {w.Jobs.Count} MR, {w.Pipes.Count} pipeline từ lần chạy trước", LogKind.Info);
@@ -555,10 +562,11 @@ public sealed partial class AppHost
             }
         }
 
+        var xl = await XlsxGuardAsync(ws, a, gc, full, started, ct);
         if (full) { a.LastFull = started; a.DevCount = changes.Count; }
         a.LastDelta = started;
         return $"{a.DevCount} change của dev" + (!full && changes.Count > 0 ? $" ({changes.Count} vừa cập nhật)" : "")
-               + (submitted > 0 ? $", vừa submit {submitted}" : "");
+               + (submitted > 0 ? $", vừa submit {submitted}" : "") + (xl > 0 ? $", −2 {xl} change vì file Excel" : "");
     }
 
     /// <summary>Reviewer −2 mà lý do (tin nhắn / comment của họ) có từ khoá cấu hình (vd IgnoreQueryFilter): mình +1.</summary>

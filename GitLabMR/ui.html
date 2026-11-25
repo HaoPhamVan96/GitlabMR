@@ -113,6 +113,8 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
 .conn{margin:10px 14px 0;padding:10px;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+/* Panel cài đặt dài (Auto, Zalo, conflict…): tự cuộn thay vì tràn khỏi cửa sổ */
+.conn{flex:none;max-height:calc(100vh - 210px);overflow-y:auto;overscroll-behavior:contain}
 .conn .src-head{grid-column:1/-1;display:flex;align-items:baseline;gap:8px;font-size:12px}
 .conn .src-head .hint{color:var(--faint);font-size:11.5px}
 .conn textarea.src{grid-column:1/-1;height:74px;font:12px/1.6 "Cascadia Mono",Consolas,monospace;white-space:pre;overflow:auto}
@@ -129,7 +131,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .fav.on{color:#e0a106}
 .fav svg{width:15px;height:15px}
 .fav.on svg{fill:currentColor}
-.conn .mini{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
+.conn .mini,.auto .mini{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
 
 /* ---------- branch bar */
 .bar{margin:10px 14px 0;padding:8px 10px;display:flex;align-items:center;gap:8px;position:relative}
@@ -221,7 +223,32 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .modal ul{margin:0;padding:8px 10px 8px 26px;max-height:170px;overflow:auto;background:var(--line2);border-radius:7px;font-size:12px}
 .modal .warn{margin-top:10px;color:var(--warn);font-size:12px}
 .modal .act{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+#zModal{z-index:40}
 #zModal .card{width:min(500px,92vw)}
+/* Popup Auto: menu dọc bên trái, nội dung bên phải */
+#autoDlg .card.adlg{width:min(780px,94vw);height:min(560px,90vh);padding:0;margin:0;border:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;gap:0}
+.adlg-head{display:flex;align-items:center;gap:14px;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.adlg-head .ttl{font-size:14px}
+.adlg-head .ttl span{color:var(--muted);font-weight:600}
+.adlg-head .x{margin-left:auto}
+.adlg-body{flex:1;display:flex;min-height:0}
+.anav{width:160px;flex:none;border-right:1px solid var(--line);padding:10px 8px;display:flex;flex-direction:column;gap:2px;background:var(--line2)}
+.anav button{text-align:left;border:0;background:none;border-radius:7px;padding:8px 10px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
+.anav button:hover{color:var(--text)}
+.anav button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.12)}
+.apanes{flex:1;overflow-y:auto;padding:14px 18px;min-width:0;overscroll-behavior:contain}
+.apane .ph{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
+.apane .ph h4{margin:0;font-size:14px}
+.apane .ph span{font-size:12px;color:var(--faint)}
+.adlg-foot{display:flex;align-items:center;gap:8px;padding:10px 14px 10px 18px;border-top:1px solid var(--line)}
+.adlg-foot .hint{margin-right:auto;font-size:11.5px;color:var(--faint)}
+@media (max-width:620px){.adlg-body{flex-direction:column}.anav{width:auto;flex-direction:row;border-right:0;border-bottom:1px solid var(--line);overflow-x:auto}}
+.autobtn{display:flex;align-items:center;gap:5px;height:28px;padding:0 11px;border-radius:14px;flex:none;font:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+.autobtn svg{width:13px;height:13px;stroke-width:2.2}
+.autobtn:hover{border-color:var(--faint);color:var(--text)}
+.autobtn.on{border-color:var(--ok,#1d8657);color:var(--ok,#1d8657)}
+.autobtn.warn{border-color:var(--warn);color:var(--warn)}
 #zModal .zl{font-size:12px;color:var(--mute);margin:12px 0 5px;display:flex;align-items:center;gap:6px}
 #zModal .zl .grow{flex:1}
 .zrow{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;margin-bottom:6px}
@@ -243,7 +270,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 }
 @media (max-width:520px){ .switch{font-size:0;gap:0} }
 /* ---------- Auto submit (workspace Gerrit, trong panel cài đặt) */
-.auto{grid-column:1/-1;border-top:1px solid var(--line);margin-top:2px;padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.auto{display:flex;flex-direction:column;gap:8px}
 .auto .ah{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .auto .ah .st{max-width:none}
 .auto .grid{display:grid;grid-template-columns:108px 1fr;gap:6px 10px;align-items:center}
@@ -255,6 +282,22 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
 .auto #aInt{flex:0 0 70px}
 .auto .act{display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .auto .act .hint{margin-right:auto;font-size:11.5px;color:var(--faint)}
+.auto .apane{display:flex;flex-direction:column;gap:10px}
+.auto .apane[hidden]{display:none}
+.auto .opts{display:flex;flex-direction:column;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--line2)}
+.auto .opts .oh{font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+.auto .opts .mini{white-space:normal}
+.auto .opts code{font-family:"Cascadia Mono",Consolas,monospace;font-size:11px}
+.msel{position:relative;flex:1;min-width:0}
+.msel-btn{width:100%;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.msel-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;padding:8px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--pop)}
+.msel-pop[hidden]{display:none}
+.msel-acts{display:flex;gap:12px;font-size:12px}
+.msel-list{max-height:220px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+.msel-list label{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;font:12px "Cascadia Mono",Consolas,monospace}
+.msel-list label:hover{background:var(--hover)}
+.msel-list .ns{color:var(--faint)}
+.msel-list .none{color:var(--faint);font-size:12px;padding:6px}
 .wstab .bolt{color:var(--warn);font-style:normal;font-size:11px;flex:none}
 .wstab .bolt.live{color:var(--ok)}
 [hidden]{display:none!important}
@@ -266,6 +309,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
   <button id="brand" class="brand" title="GitLab MR – bấm để kiểm tra cập nhật"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8.5 6.5v11M15.5 9.5c0 3-7 2.2-7 5.5"/><circle cx="8.5" cy="6.2" r="2.2"/><circle cx="8.5" cy="17.8" r="2.2"/><circle cx="15.5" cy="8.8" r="2.2"/></svg></span><span id="ver" class="ver"></span></button>
   <nav id="wsTabs" class="wstabs"></nav>
   <button id="wsAdd" class="icon" title="Thêm workspace (GitLab / token khác)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button id="autoBtn" class="autobtn" hidden title="Cấu hình Auto submit / merge của tab Gerrit này"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Auto</button>
   <button id="upd" class="upd" hidden></button>
   <button id="chip" class="conn-chip" title="Cài đặt workspace này"><span id="dot" class="dot"></span><b id="chipText">Chưa kết nối</b><span id="chipUser"></span><svg viewBox="0 0 24 24" class="gear"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
@@ -288,48 +332,6 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
   </div>
   <label class="mini"><input id="ssl" type="checkbox" class="chk"> Bỏ qua SSL</label>
   <button id="btnConnect" class="btn primary">Kết nối</button>
-  <div id="autoBox" class="auto" hidden>
-    <div class="ah">
-      <label class="switch" title="Tự +2 & submit change đã được reviewer +1, rồi merge bên GitLab"><input id="aOn" type="checkbox"><span class="tr"></span>Auto submit</label>
-      <label class="mini" title="Chỉ ghi nhật ký những gì sẽ làm, không +2 / submit / merge thật"><input id="aDry" type="checkbox" class="chk"> Chạy thử</label>
-      <span id="aState"></span>
-    </div>
-    <div class="grid">
-      <label for="aRev">Reviewer +1</label>
-      <input id="aRev" class="in" placeholder="khoavn2 – người này +1 thì tự submit (nhiều người: dấu phẩy)" spellcheck="false">
-      <label for="aOwn">Account dev</label>
-      <input id="aOwn" class="in" placeholder="Chỉ change của các account này (username / email, dấu phẩy)" spellcheck="false">
-      <label for="aBranch">Branch Gerrit</label>
-      <div class="cell"><input id="aBranch" class="in br" placeholder="trống = mọi branch" spellcheck="false">
-        <span class="hint2" style="margin:0">quét mỗi</span><input id="aInt" class="in" type="number" min="10" max="3600" step="5" title="Quét nhanh: chỉ hỏi Gerrit change mới cập nhật (5 phút quét đầy đủ 1 lần), nên đặt 10–15 giây vẫn nhẹ"><span class="hint2" style="margin:0">giây</span></div>
-      <label for="aGl">Sau khi submit</label>
-      <div class="cell"><select id="aGl" class="in" title="Workspace GitLab để tạo / merge MR"></select>
-        <input id="aSrc" class="in br" placeholder="{branch}" title="Branch nguồn bên GitLab – {branch} = branch của change trên Gerrit" spellcheck="false">
-        <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        <input id="aTgt" class="in br" placeholder="testing2" title="Branch đích bên GitLab" spellcheck="false">
-        <label class="mini" title="Tạo MR xong merge luôn"><input id="aMerge" type="checkbox" class="chk"> Merge</label></div>
-      <label for="aZaloCfg">Zalo Bot</label>
-      <div class="cell"><button id="aZaloCfg" class="btn sm" title="Bot token và nơi nhận thông báo">Cấu hình…</button><span id="aZaloSum"></span></div>
-      <span></span>
-      <label class="mini" title="Merge xong app theo dõi pipeline trên branch đích, build xong (pass / fail) thì nhắn"><input id="aPipe" type="checkbox" class="chk"> Báo kết quả pipeline sau khi merge (build xong thì nhắn)</label>
-      <span></span>
-      <label class="mini" title="Reviewer đã +1 mà còn comment chưa resolve: app trả lời &quot;Done&quot; và resolve các comment viết trước lúc +1, rồi submit. Comment mới hơn lúc +1 thì không đụng, báo bot."><input id="aResolve" type="checkbox" class="chk"> Tự resolve comment (viết trước lúc +1) rồi submit</label>
-      <span></span>
-      <div class="cell"><label class="mini" title="Reviewer ở trên cho −2 trên change của account dev, và lý do (tin nhắn / comment của reviewer) có từ khoá này: app tự Code-Review +1"><input id="aP1" type="checkbox" class="chk"> Tự +1 khi reviewer −2 vì</label>
-        <input id="aP1Kw" class="in br" placeholder="IgnoreQueryFilter" spellcheck="false" style="flex:0 1 170px"></div>
-      <span></span>
-      <label class="mini"><input id="aOk" type="checkbox" class="chk"> Báo cả khi thành công (mặc định chỉ báo conflict / lỗi)</label>
-      <label for="aFixBr" class="fixrow">Conflict testing2</label>
-      <div class="cell fixrow"><label class="mini" title="Conflict khi merge vào testing2: tạo {branch}_fix_conflict từ testing2, merge branch nguồn vào, nhờ Claude Code sửa (quy trình ppx-merge-testing). Chỉ tự merge khi không có conflict Nặng và tự tin ≥ 70%; còn lại tạo MR chờ duyệt. Branch feature giữ sạch."><input id="aFix" type="checkbox" class="chk"> Auto-fix bằng Claude</label>
-        <input id="aFixBr" class="in br" placeholder="{branch}_fix_conflict" title="Tên branch trung gian (tạo từ testing2, merge branch nguồn vào): {branch} = branch nguồn" spellcheck="false">
-        <input id="aClaude" class="in" placeholder="claude.exe – trống = tự tìm" title="Đường dẫn Claude Code CLI (trống = tìm trong ~/.local/bin, PATH, npm)" spellcheck="false">
-        <input id="aModel" class="in br" list="aModels" placeholder="model – trống = mặc định" title="Model Claude: opus (chắc hơn, chậm hơn), sonnet (nhanh, đủ cho conflict nhẹ), haiku, hoặc tên đầy đủ. Trống = model mặc định của Claude Code" spellcheck="false" style="flex:0 1 150px">
-        <datalist id="aModels"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
-        <button id="aClaudeTest" class="btn sm" title="Gọi thử Claude Code CLI (cần đăng nhập 1 lần: mở terminal chạy claude)">Kiểm tra</button></div>
-    </div>
-    <div class="act"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Zalo Bot.</span>
-      <button id="aRun" class="btn sm" title="Quét 1 lượt ngay">Quét ngay</button><button id="aSave" class="btn sm primary">Lưu</button></div>
-  </div>
 </section>
 
 <section class="card bar">
@@ -403,6 +405,97 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
     <ul id="mList"></ul>
     <div id="mWarn" class="warn" hidden>Branch nguồn sẽ bị xoá sau khi merge.</div>
     <div class="act"><button id="mNo" class="btn">Huỷ</button><button id="mYes" class="btn primary">Xác nhận</button></div>
+  </div>
+</div>
+
+<div id="autoDlg" class="modal" hidden>
+  <div id="autoBox" class="card auto adlg">
+    <div class="adlg-head">
+      <b class="ttl">⚡ Auto · <span id="aWsName"></span></b>
+      <label class="switch" title="Tự +2 & submit change đã được reviewer +1, rồi merge bên GitLab"><input id="aOn" type="checkbox"><span class="tr"></span>Bật</label>
+      <label class="mini" title="Chỉ ghi nhật ký những gì sẽ làm, không +2 / submit / merge thật"><input id="aDry" type="checkbox" class="chk"> Chạy thử</label>
+      <span id="aState"></span>
+      <button id="aX" class="icon x" title="Đóng (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="adlg-body">
+      <nav class="anav" id="aTabs">
+        <button data-p="gerrit" class="on">Gerrit</button>
+        <button data-p="rules">Quy tắc tự động</button>
+        <button data-p="gitlab">GitLab</button>
+        <button data-p="notify">Thông báo</button>
+      </nav>
+      <div class="apanes">
+    <div class="apane" data-p="gerrit">
+      <div class="ph"><h4>Gerrit</h4><span>Change của account dev được reviewer +1 thì app tự +2 &amp; submit.</span></div>
+      <div class="grid">
+        <label for="aRev">Reviewer +1</label>
+        <input id="aRev" class="in" placeholder="khoavn2 – người này +1 thì tự submit (nhiều người: dấu phẩy)" spellcheck="false">
+        <label for="aOwn">Account dev</label>
+        <input id="aOwn" class="in" placeholder="Chỉ change của các account này (username / email, dấu phẩy)" spellcheck="false">
+        <label for="aBranch">Branch</label>
+        <div class="cell"><input id="aBranch" class="in br" placeholder="trống = mọi branch" spellcheck="false">
+          <span class="hint2" style="margin:0">quét mỗi</span><input id="aInt" class="in" type="number" min="10" max="3600" step="5" title="Quét nhanh: chỉ hỏi Gerrit change mới cập nhật (5 phút quét đầy đủ 1 lần), nên đặt 10–15 giây vẫn nhẹ"><span class="hint2" style="margin:0">giây</span></div>
+      </div>
+    </div>
+
+    <div class="apane" data-p="rules" hidden>
+      <div class="ph"><h4>Quy tắc tự động</h4><span>Những việc app tự làm thêm trên Gerrit.</span></div>
+      <div class="opts">
+        <div class="oh">Tự động trên Gerrit</div>
+        <label class="mini" title="Reviewer đã +1 mà còn comment chưa resolve: app trả lời &quot;Done&quot; và resolve các comment viết trước lúc +1, rồi submit. Comment mới hơn lúc +1 thì không đụng, báo bot."><input id="aResolve" type="checkbox" class="chk"> Tự resolve comment viết trước lúc +1 rồi submit</label>
+        <div class="cell"><label class="mini" title="Reviewer ở trên cho −2 trên change của account dev, và lý do (tin nhắn / comment của reviewer) có từ khoá này: app tự Code-Review +1"><input id="aP1" type="checkbox" class="chk"> Tự +1 khi reviewer −2 vì</label>
+          <input id="aP1Kw" class="in br" placeholder="IgnoreQueryFilter" spellcheck="false" style="flex:0 1 170px"></div>
+        <div class="cell"><label class="mini" title="Change đang mở trong các repo của tab này có file .xlsx sinh bằng code (Python / AI, chưa mở Excel save lại – Black Duck sẽ nhận nhầm thành thư viện): app −2, comment vào file nhắc mở Excel save lại, báo Zalo. Push bản đã save lại thì tự gỡ −2."><input id="aXlsx" type="checkbox" class="chk"> −2 khi có file Excel sinh bằng code (nhắc mở Excel save lại, tránh Black Duck)</label></div>
+        <div class="cell" style="padding-left:22px"><span class="hint2" style="margin:0;white-space:nowrap">quét repo</span>
+          <div class="msel" id="xlSel"><button type="button" class="in msel-btn" id="xlSelBtn" title="Chọn repo cần quét file Excel – không chọn = mọi repo của tab"></button>
+            <div class="msel-pop card" id="xlSelPop" hidden>
+              <input class="in" id="xlSelQ" placeholder="Lọc repo…" spellcheck="false">
+              <div class="msel-acts"><button type="button" class="link" id="xlSelAll">Chọn hết (đang lọc)</button><button type="button" class="link" id="xlSelNone">Bỏ chọn = mọi repo</button></div>
+              <div class="msel-list" id="xlSelList"></div>
+            </div></div>
+          <input type="hidden" id="aXlsxRepos"></div>
+      </div>
+    </div>
+
+    <div class="apane" data-p="gitlab" hidden>
+      <div class="ph"><h4>GitLab</h4><span>Sau khi Gerrit submit: tạo / merge MR GitLab, xử lý conflict.</span></div>
+      <div class="grid">
+        <label for="aGl">Workspace</label>
+        <div class="cell"><select id="aGl" class="in" title="Workspace GitLab để tạo / merge MR sau khi submit" style="flex:1 1 auto"></select></div>
+        <label for="aSrc">Branch</label>
+        <div class="cell"><input id="aSrc" class="in br" placeholder="{branch}" title="Branch nguồn bên GitLab – {branch} = branch của change trên Gerrit" spellcheck="false">
+          <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          <input id="aTgt" class="in br" placeholder="testing2" title="Branch đích bên GitLab" spellcheck="false">
+          <label class="mini" title="Tạo MR xong merge luôn"><input id="aMerge" type="checkbox" class="chk"> Merge</label></div>
+      </div>
+      <div class="opts fixrow">
+        <div class="oh">Conflict khi merge vào testing2</div>
+        <div class="cell"><label class="mini" title="Conflict khi merge vào testing2: tạo {branch}_fix_conflict từ testing2, merge branch nguồn vào, nhờ Claude Code sửa (quy trình ppx-merge-testing). Chỉ tự merge khi không có conflict Nặng và tự tin ≥ 70%; còn lại tạo MR chờ duyệt. Branch feature giữ sạch."><input id="aFix" type="checkbox" class="chk"> Auto-fix bằng Claude, branch</label>
+          <input id="aFixBr" class="in br" placeholder="{branch}_fix_conflict" title="Tên branch trung gian (tạo từ testing2, merge branch nguồn vào): {branch} = branch nguồn" spellcheck="false"></div>
+        <div class="cell"><input id="aClaude" class="in" placeholder="claude.exe – trống = tự tìm" title="Đường dẫn Claude Code CLI (trống = tìm trong ~/.local/bin, PATH, npm)" spellcheck="false">
+          <input id="aModel" class="in br" list="aModels" placeholder="model (mặc định)" title="Model Claude: opus (chắc hơn, chậm hơn), sonnet (nhanh, đủ cho conflict nhẹ), haiku, hoặc tên đầy đủ. Trống = model mặc định của Claude Code" spellcheck="false" style="flex:0 1 150px">
+          <datalist id="aModels"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
+          <button id="aClaudeTest" class="btn sm" title="Gọi thử Claude Code CLI (cần đăng nhập 1 lần: mở terminal chạy claude)">Kiểm tra</button></div>
+        <div class="hint2" style="margin:0">Không tự fix được thì tin báo kèm mã fix: member fix trên branch riêng rồi reply bot <code>&lt;branch&gt; &lt;mã&gt;</code>.</div>
+      </div>
+    </div>
+
+    <div class="apane" data-p="notify" hidden>
+      <div class="ph"><h4>Thông báo</h4><span>Gửi qua Zalo Bot.</span></div>
+      <div class="grid">
+        <label for="aZaloCfg">Zalo Bot</label>
+        <div class="cell"><button id="aZaloCfg" class="btn sm" title="Bot token và nơi nhận thông báo">Cấu hình…</button><span id="aZaloSum"></span></div>
+      </div>
+      <div class="opts">
+        <div class="oh">Báo những gì</div>
+        <label class="mini" title="Merge xong app theo dõi pipeline trên branch đích, build xong (pass / fail) thì nhắn"><input id="aPipe" type="checkbox" class="chk"> Kết quả pipeline sau khi merge (build xong thì nhắn)</label>
+        <label class="mini"><input id="aOk" type="checkbox" class="chk"> Cả khi thành công (mặc định chỉ báo conflict / lỗi / việc đang chờ)</label>
+      </div>
+    </div>
+      </div>
+    </div>
+    <div class="adlg-foot"><span class="hint">Chỉ chạy khi app đang mở. Conflict / lỗi được báo qua Zalo Bot.</span>
+      <button id="aRun" class="btn sm" title="Quét 1 lượt ngay">Quét ngay</button><button id="aClose" class="btn sm">Đóng</button><button id="aSave" class="btn sm primary">Lưu</button></div>
   </div>
 </div>
 
@@ -519,7 +612,7 @@ function applyKind() {
   const K = KINDS[S.kind], g = S.kind === 'gerrit';
   $('#srcTitle').textContent = K.title; $('#srcHint').textContent = K.hint; $('#url').placeholder = K.ph;
   $('#gUser').hidden = !g;
-  $('#autoBox').hidden = !g;
+  $('#autoBtn').hidden = !g; if (!g) $('#autoDlg').hidden = true;
   document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('on', b.dataset.kind === S.kind));
   tokenHint(); applyMode();
 }
@@ -546,7 +639,7 @@ function renderAuto(a) {
   $('#aRev').value = a.reviewers || ''; $('#aOwn').value = a.owners || ''; $('#aBranch').value = a.branch || '';
   $('#aInt').value = a.interval || 60;
   $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
-  $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true; $('#aResolve').checked = a.autoResolve ?? true; $('#aP1').checked = a.plusOneOnVeto ?? true; $('#aP1Kw').value = a.plusOneKeyword || 'IgnoreQueryFilter';
+  $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true; $('#aResolve').checked = a.autoResolve ?? true; $('#aP1').checked = a.plusOneOnVeto ?? true; $('#aP1Kw').value = a.plusOneKeyword || 'IgnoreQueryFilter'; $('#aXlsx').checked = a.xlsxGuard ?? true; $('#aXlsxRepos').value = a.xlsxRepos || ''; xlSelRender();
   $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || ''; $('#aModel').value = a.claudeModel || '';
   $('#aZalo').value = '';
   $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
@@ -562,13 +655,15 @@ function autoStateText() {
   const txt = a.elsewhere ? 'Đang chạy ở cửa sổ GitLab MR khác' : !a.running ? 'Đang tắt' : (a.dryRun ? 'Chạy thử' : 'Đang chạy') +
     (a.lastRun ? ` · ${fmtTime(a.lastRun)}` : '') + (a.text ? ` · ${a.text}` : '');
   $('#aState').innerHTML = `<span class="st st-${cls}" title="${esc(a.text || '')}"><span>${esc(txt)}</span></span>`;
+  const ab = $('#autoBtn'); ab.classList.toggle('on', !!a.running && !a.error && !a.dryRun); ab.classList.toggle('warn', !!a.running && (!!a.error || !!a.dryRun) || !!a.elsewhere);
+  ab.title = 'Auto: ' + txt;
 }
 function autoPayload() {
   return {
     enabled: $('#aOn').checked, dryRun: $('#aDry').checked, interval: +$('#aInt').value || 60,
     branch: $('#aBranch').value.trim(), reviewers: $('#aRev').value, owners: $('#aOwn').value,
     gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
-    gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked, autoResolve: $('#aResolve').checked, plusOneOnVeto: $('#aP1').checked, plusOneKeyword: $('#aP1Kw').value.trim(),
+    gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked, autoResolve: $('#aResolve').checked, plusOneOnVeto: $('#aP1').checked, plusOneKeyword: $('#aP1Kw').value.trim(), xlsxGuard: $('#aXlsx').checked, xlsxRepos: $('#aXlsxRepos').value,
     conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim(),
     ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
   };
@@ -958,7 +1053,8 @@ const H = {
     applyKind();
   },
   wsList(d) { S.wsList = d.items || []; S.wsActive = d.active; renderWsTabs(); fillAutoWs($('#aGl').value || S.auto?.gitlabWs || ''); },
-  autoState(d) { if (d.wsId !== S.wsActive) return; S.auto = { ...S.auto, ...d.auto }; autoStateText(); renderWsTabs(); if ($('#zModal').hidden) renderZalo(); },
+  autoState(d) { if (d.wsId !== S.wsActive) return; S.auto = { ...S.auto, ...d.auto };
+    if (S.autoSaving) { S.autoSaving = false; $('#autoDlg').hidden = true; $('#xlSelPop').hidden = true; } // Lưu xong: đóng popup autoStateText(); renderWsTabs(); if ($('#zModal').hidden) renderZalo(); },
   toast(d) { toast(d.text, d.err); },
   zaloChat(d) {
     const cs = S.zaloChats || (S.zaloChats = []);
@@ -1078,6 +1174,7 @@ const H = {
     if (d.state === 'error') toast('Không kiểm tra được cập nhật: ' + (d.error || ''), true);
   },
   error(d) {
+    S.autoSaving = false; // Lưu lỗi (vd thiếu reviewer): giữ popup để sửa
     toast(d.text, true);
     if (!S.connected) { chip('Lỗi kết nối', 'err'); $('#conn').hidden = false; }
   },
@@ -1095,6 +1192,53 @@ $('#upd').onclick = () => {
 };
 $('#aGl').onchange = autoGlState;
 $('#aTgt').oninput = autoGlState;
+// Combo chọn nhiều repo cho phần quét file Excel (giá trị lưu ở #aXlsxRepos, dấu phẩy; trống = mọi repo)
+function xlSelGet() { return $('#aXlsxRepos').value.split(',').map(x => x.trim()).filter(Boolean); }
+function xlSelHas(path, sel) { const l = path.toLowerCase(); return sel.some(r => { r = r.toLowerCase().replace(/^\/+|\/+$/g, ''); return l === r || l.endsWith('/' + r); }); }
+function xlSelRender() {
+  const sel = xlSelGet(), all = (S.projects || []).map(p => p.path);
+  const short = x => x.split('/').pop();
+  $('#xlSelBtn').textContent = !sel.length ? 'Mọi repo của tab' : `${sel.length} repo: ` + sel.map(short).join(', ');
+  if ($('#xlSelPop').hidden) return;
+  const q = $('#xlSelQ').value.trim().toLowerCase();
+  // repo đã chọn mà không còn trong tab (hoặc tab chưa tải) vẫn hiện để bỏ chọn được
+  const paths = [...new Set([...all, ...sel.filter(r => !all.some(p => xlSelHas(p, [r])))])];
+  const list = paths.filter(x => !q || x.toLowerCase().includes(q)).sort((a, b) => xlSelHas(b, sel) - xlSelHas(a, sel) || a.localeCompare(b));
+  $('#xlSelList').innerHTML = list.length ? list.map(x => {
+    const i = x.lastIndexOf('/');
+    return `<label><input type="checkbox" class="chk" data-p="${esc(x)}"${xlSelHas(x, sel) ? ' checked' : ''}><span><span class="ns">${esc(x.slice(0, i + 1))}</span>${esc(x.slice(i + 1))}</span></label>`;
+  }).join('') : `<div class="none">${all.length ? 'Không có repo khớp' : 'Chưa có danh sách repo – kết nối tab Gerrit trước'}</div>`;
+}
+function xlSelSet(paths) { $('#aXlsxRepos').value = [...new Set(paths)].join(', '); xlSelRender(); }
+$('#xlSelBtn').onclick = e => { e.stopPropagation(); const pop = $('#xlSelPop'); pop.hidden = !pop.hidden; if (!pop.hidden) { $('#xlSelQ').value = ''; xlSelRender(); $('#xlSelQ').focus(); } };
+$('#xlSelQ').oninput = xlSelRender;
+$('#xlSelList').addEventListener('change', e => {
+  const x = e.target.dataset.p; if (!x) return;
+  const sel = xlSelGet().filter(r => !xlSelHas(x, [r]));
+  xlSelSet(e.target.checked ? [...sel, x] : sel);
+});
+$('#xlSelAll').onclick = () => { const q = $('#xlSelQ').value.trim().toLowerCase(); xlSelSet([...xlSelGet(), ...(S.projects || []).map(p => p.path).filter(x => !q || x.toLowerCase().includes(q))]); };
+$('#xlSelNone').onclick = () => xlSelSet([]);
+document.addEventListener('click', e => { if (!$('#xlSelPop').hidden && !e.target.closest('#xlSel')) $('#xlSelPop').hidden = true; });
+// Tab trong panel Auto: Gerrit / GitLab / Thông báo (nhớ tab đang mở)
+function autoTab(p) {
+  document.querySelectorAll('#aTabs button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+  $('#autoBox .apanes').scrollTop = 0;
+  document.querySelectorAll('#autoBox .apane').forEach(x => x.hidden = x.dataset.p !== p);
+  try { localStorage.setItem('autoTab', p); } catch {}
+}
+document.querySelectorAll('#aTabs button').forEach(b => b.onclick = () => autoTab(b.dataset.p));
+try { const t = localStorage.getItem('autoTab'); if (t && document.querySelector(`#aTabs [data-p="${t}"]`)) autoTab(t); } catch {}
+// Mở / đóng popup Auto. Đóng không lưu: trả các ô về giá trị đã lưu
+function autoOpen() {
+  renderAuto(S.auto);
+  $('#aWsName').textContent = (S.wsList || []).find(w => w.id === S.wsActive)?.name || '';
+  $('#autoDlg').hidden = false;
+}
+function autoClose() { $('#autoDlg').hidden = true; $('#xlSelPop').hidden = true; renderAuto(S.auto); }
+$('#autoBtn').onclick = autoOpen;
+$('#aX').onclick = autoClose; $('#aClose').onclick = autoClose;
+$('#autoDlg').addEventListener('mousedown', e => { if (e.target.id === 'autoDlg') autoClose(); });
 $('#aZaloGet').onclick = () => { $('#aZaloGet').disabled = true; setTimeout(renderZalo, 25000); send('autoZaloChat', zaloPayload()); };
 $('#aZaloCfg').onclick = () => { $('#zModal').hidden = false; renderZalo(); (S.auto?.hasZalo ? $('#zClose') : $('#aZalo')).focus(); };
 $('#zClose').onclick = () => {   // đóng không lưu: trả lại danh sách đã lưu
@@ -1106,7 +1250,7 @@ $('#zList').addEventListener('input', e => { const i = e.target.dataset.i; if (i
 $('#zList').addEventListener('click', e => { const i = e.target.dataset.x; if (i != null) { S.zaloChats.splice(+i, 1); renderZalo(); } });
 $('#aZaloTest').onclick = () => send('autoTestZalo', zaloPayload());
 $('#aClaudeTest').onclick = () => send('autoTestClaude', { claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim() });
-$('#aSave').onclick = () => send('autoSave', autoPayload());
+$('#aSave').onclick = () => { S.autoSaving = true; send('autoSave', autoPayload()); };
 $('#aRun').onclick = () => { send('autoRun'); toast('Đang quét… xem kết quả trong Nhật ký'); };
 $('#aOn').onchange = () => { if ($('#aOn').checked && !$('#aRev').value.trim()) $('#aRev').focus(); };
 $('#chip').onclick = () => { $('#conn').hidden = !$('#conn').hidden; if (!$('#conn').hidden) $('#url').focus(); };
@@ -1239,7 +1383,7 @@ $('#btnCheck').onclick = () => run(true);
 $('#btnRun').onclick = () => run(false);
 $('#btnStop').onclick = () => send('stop');
 $('#mNo').onclick = () => $('#modal').hidden = true;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; if (!$('#zModal').hidden) $('#zClose').click(); $('#pop').hidden = true; $('#logp').hidden = true; $('#mrp').hidden = true; } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; if (!$('#zModal').hidden) $('#zClose').click(); else if (!$('#autoDlg').hidden) autoClose(); $('#pop').hidden = true; $('#logp').hidden = true; $('#mrp').hidden = true; } });
 
 $('#btnLog').onclick = () => {
   if (showPanel('#logp')) { S.errs = 0; $('#logBadge').hidden = true; $('#log').scrollTop = $('#log').scrollHeight; }
