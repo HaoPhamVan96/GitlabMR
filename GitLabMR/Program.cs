@@ -15,6 +15,19 @@ internal static class Program
         // App không cài qua Velopack (macOS, chạy exe trực tiếp) thì không làm gì.
         try { VelopackApp.Build().SetAutoApplyOnStartup(false).Run(); } catch { }
 
+        // 1 máy chỉ chạy 1 app: mở lần nữa thì đưa cửa sổ đang chạy lên trước rồi thoát
+        // (2 app cùng chạy Auto sẽ submit / merge / báo Zalo trùng và giành tin nhắn của bot).
+        // Chờ ngắn để bản cũ kịp thoát khi tự cập nhật khởi động lại.
+        using var single = new Mutex(false, @"Local\GitLabMR.SingleInstance");
+        bool owned;
+        try { owned = single.WaitOne(TimeSpan.FromSeconds(3)); }
+        catch (AbandonedMutexException) { owned = true; } // bản trước bị tắt ngang: vẫn nhận được
+        if (!owned)
+        {
+            ActivateRunning();
+            return;
+        }
+
         string html;
         using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ui.html")!)
         using (var reader = new StreamReader(stream))
@@ -48,6 +61,32 @@ internal static class Program
         window.LoadRawString(html);
         window.WaitForClose();
         host.Shutdown();
+        single.ReleaseMutex();
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+
+    /// <summary>Đưa cửa sổ GitLab MR đang chạy lên trước (Windows). macOS tự lo việc chỉ mở 1 app.</summary>
+    private static void ActivateRunning()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            using var me = System.Diagnostics.Process.GetCurrentProcess();
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(me.ProcessName))
+            {
+                using (p)
+                {
+                    if (p.Id == me.Id || p.MainWindowHandle == IntPtr.Zero) continue;
+                    if (IsIconic(p.MainWindowHandle)) ShowWindow(p.MainWindowHandle, 9); // SW_RESTORE
+                    SetForegroundWindow(p.MainWindowHandle);
+                    return;
+                }
+            }
+        }
+        catch { /* không đưa lên được thì thôi */ }
     }
 
     private static bool SafeMaximized(PhotinoWindow w)

@@ -42,6 +42,7 @@ Chạy trên **Windows** và **macOS** (.NET 8 + [Photino](https://www.tryphotin
 - Xem / copy toàn bộ link kết quả (MR hoặc branch) một lần để dán vào chat.
 - **Cache**: danh sách project + branch gợi ý được lưu theo workspace, mở app / đổi tab hiện ngay không gọi server (chấm xám + "x giờ trước" trên nhãn kết nối). Bấm ⟳ để tải lại; cache cũ hơn `CacheMaxAgeHours` (mặc định 12 giờ, 0 = tắt) thì tự làm mới khi mở.
 - Token được lưu an toàn: Windows dùng DPAPI, macOS dùng Keychain.
+- **1 máy chỉ chạy 1 app**: mở GitLab MR lần nữa thì cửa sổ đang chạy được đưa lên trước (tránh 2 app cùng chạy Auto: submit / merge / báo Zalo trùng).
 - **Tự cập nhật** (Windows, bản cài bằng `GitLabMR-win-Setup.exe`): app tự kiểm tra GitHub Releases lúc mở và mỗi 6 giờ,
   tải ngầm bản mới. Khi tải xong, header hiện nút **↻ vX.Y.Z**: bấm vào thì app khởi động lại vào bản mới; không bấm thì bản mới được cài khi đóng app
   (nếu còn cửa sổ GitLab MR khác đang mở thì đợi lần đóng sau, không đóng ngang cửa sổ đang chạy).

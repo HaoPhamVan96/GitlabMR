@@ -557,8 +557,8 @@ function renderAuto(a) {
 }
 function autoStateText() {
   const a = S.auto || {};
-  const cls = !a.running ? 'mute' : a.error ? 'err' : a.dryRun ? 'warn' : 'ok';
-  const txt = !a.running ? 'Đang tắt' : (a.dryRun ? 'Chạy thử' : 'Đang chạy') +
+  const cls = a.elsewhere ? 'warn' : !a.running ? 'mute' : a.error ? 'err' : a.dryRun ? 'warn' : 'ok';
+  const txt = a.elsewhere ? 'Đang chạy ở cửa sổ GitLab MR khác' : !a.running ? 'Đang tắt' : (a.dryRun ? 'Chạy thử' : 'Đang chạy') +
     (a.lastRun ? ` · ${fmtTime(a.lastRun)}` : '') + (a.text ? ` · ${a.text}` : '');
   $('#aState').innerHTML = `<span class="st st-${cls}" title="${esc(a.text || '')}"><span>${esc(txt)}</span></span>`;
 }

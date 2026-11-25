@@ -76,12 +76,65 @@ public sealed partial class AppHost
     {
         foreach (var ws in _cfg.Workspaces.Where(w => w.Kind == "gerrit" && w.Auto?.Enabled == true))
             if (AutoOf(ws.Id).Loop == null) StartAuto(ws);
+        WatchAutoLock();
+    }
+
+    // ---------------------------------------------------------------- chỉ 1 cửa sổ chạy Auto
+    // Mở nhiều cửa sổ GitLab MR: chỉ cửa sổ giữ được file khoá mới chạy Auto (tránh submit / merge / báo Zalo trùng,
+    // 2 luồng nghe Zalo giành tin). Khoá là file mở độc quyền: process thoát hay crash thì hệ điều hành tự nhả.
+    private FileStream? _autoLock;
+    private bool _lockWatch;
+
+    private static string AutoLockFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "auto.lock");
+
+    private bool AutoOwner()
+    {
+        if (_autoLock != null) return true;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(AutoLockFile)!);
+            _autoLock = new FileStream(AutoLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            _autoLock.SetLength(0);
+            var pid = System.Text.Encoding.UTF8.GetBytes(Environment.ProcessId.ToString());
+            _autoLock.Write(pid); _autoLock.Flush();
+            return true;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Cửa sổ không giữ khoá: 30 giây thử lại 1 lần, cửa sổ kia đóng thì nhận chạy Auto.</summary>
+    private void WatchAutoLock()
+    {
+        if (_lockWatch || _autoLock != null) return;
+        _lockWatch = true;
+        _ = Task.Run(async () =>
+        {
+            while (!_life.IsCancellationRequested && _autoLock == null)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(30), _life.Token); } catch { break; }
+                if (!_cfg.Workspaces.Any(w => w.Kind == "gerrit" && w.Auto?.Enabled == true) || !AutoOwner()) continue;
+                Log("[Auto] Cửa sổ chạy Auto trước đã đóng → cửa sổ này nhận chạy Auto", LogKind.Info);
+                foreach (var ws in _cfg.Workspaces.Where(w => w.Kind == "gerrit" && w.Auto?.Enabled == true))
+                    if (AutoOf(ws.Id).Loop == null) StartAuto(ws);
+            }
+            _lockWatch = false;
+        });
     }
 
     private void StartAuto(Workspace ws)
     {
         StopAuto(ws.Id);
         var a = AutoOf(ws.Id);
+        if (!AutoOwner())
+        {
+            Once(a, "elsewhere", $"[Auto {ws.Name}] Auto đang chạy ở cửa sổ GitLab MR khác – cửa sổ này không chạy để tránh submit / merge / báo trùng", LogKind.Warn);
+            WatchAutoLock();
+            SendAutoState(ws);
+            return;
+        }
+        a.Noted.Remove("elsewhere");
         RestoreWork(ws, a);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_life.Token);
         a.Loop = cts;
@@ -146,7 +199,7 @@ public sealed partial class AppHost
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
             hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword, sassyBot = f.SassyBot,
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
-            running = a.Loop != null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
+            running = a.Loop != null, elsewhere = f.Enabled && a.Loop == null && _autoLock == null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
     }
 
@@ -207,6 +260,7 @@ public sealed partial class AppHost
     {
         var ws = _ws;
         if (ws.Kind != "gerrit" || ws.Auto == null) throw new GitLabException("Lưu cấu hình Auto trước đã.");
+        if (!AutoOwner()) throw new GitLabException("Auto đang chạy ở cửa sổ GitLab MR khác – bấm Quét ngay ở cửa sổ đó.");
         _ = Task.Run(() => AutoTickAsync(ws, _life.Token));
     }
 
