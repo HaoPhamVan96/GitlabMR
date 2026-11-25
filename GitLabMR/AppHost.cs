@@ -154,6 +154,7 @@ public sealed partial class AppHost
                 case "ready":
                     _ready = true;
                     SendInit();
+                    Send(new { type = "appVersion", version = _updater.CurrentVersion });
                     _updater.Resend();
                     if (!_updaterStarted) { _updaterStarted = true; _updater.Start(_life.Token); }
                     await SwitchAsync(_ws.Id);
