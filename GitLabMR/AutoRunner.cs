@@ -44,6 +44,11 @@ public sealed partial class AppHost
         public bool Restored;                                        // đã nạp việc đang chờ từ file
         public GerritClient? Gc; public string GcKey = "";
         public GitLabClient? Gl; public string GlKey = "";
+        public readonly List<DeployWatch> Deploys = new();          // chờ Argo deploy xong (khoá bằng lock Jobs)
+        public ArgoClient? Argo; public string ArgoKey = "";
+        public DateTime? ArgoMon;                                    // lần canh Argo gần nhất
+        public readonly Dictionary<string, DateTime> ArgoNotReady = new(); // pod -> lúc thấy chưa Ready
+        public readonly HashSet<string> ArgoBad = new();             // app đang lỗi, đã báo (khoá bằng lock Jobs)
     }
 
     private sealed class AutoJob
@@ -90,7 +95,7 @@ public sealed partial class AppHost
     private bool _lockWatch;
 
     private static string AutoLockFile => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "auto.lock");
+        Platform.AppData, "GitLabMR", "auto.lock");
 
     private bool AutoOwner()
     {
@@ -159,7 +164,7 @@ public sealed partial class AppHost
             {
                 await GitLabTickAsync(ws, cts.Token);
                 bool busy;
-                lock (a.Jobs) busy = a.Jobs.Count > 0 || a.Pipes.Count > 0 || !a.NewPipes.IsEmpty;
+                lock (a.Jobs) busy = a.Jobs.Count > 0 || a.Pipes.Count > 0 || !a.NewPipes.IsEmpty || a.Deploys.Count > 0;
                 try { await a.Wake.WaitAsync(busy ? GlFast : GlIdle, cts.Token); }
                 catch (OperationCanceledException) { break; }
             }
@@ -203,6 +208,7 @@ public sealed partial class AppHost
             gitlabMerge = f.GitLabMerge, notifySuccess = f.NotifySuccess,
             hasZalo = f.ZaloToken != null, zaloChats = f.ChatList, notifyPipeline = f.NotifyPipeline, autoResolve = f.AutoResolve, plusOneOnVeto = f.PlusOneOnVeto, plusOneKeyword = f.PlusOneKeyword, sassyBot = f.SassyBot, xlsxGuard = f.XlsxGuard, xlsxRepos = string.Join(", ", f.XlsxRepos),
             conflictFix = f.ConflictFix, conflictBranch = f.ConflictBranch, claudePath = f.ClaudePath ?? "", claudeModel = f.ClaudeModel ?? "",
+            argoWatch = f.ArgoWatch, argoUrl = f.ArgoUrl ?? "", argoUser = f.ArgoUser ?? "", hasArgo = f.ArgoSecret != null, argoSsl = f.ArgoIgnoreSsl, argoApps = ArgoAppsText(f.ArgoApps), argoWait = f.ArgoWaitMin, argoMonitor = f.ArgoMonitor,
             running = a.Loop != null, elsewhere = f.Enabled && a.Loop == null && _autoLock == null, lastRun = a.LastRun, text = a.LastText + (a.GlText.Length > 0 ? ", " + a.GlText : ""), error = a.LastError, jobs = a.Jobs.Count,
         };
     }
@@ -247,6 +253,7 @@ public sealed partial class AppHost
         else if (zalo.Length > 0) f.ZaloToken = Platform.ProtectToken(_ws.ZaloKey, zalo);
         f.ZaloChats = ParseChats(m);
         f.ZaloChatId = null;
+        SaveArgo(m, f);
         if (f.Enabled && (f.Reviewers.Count == 0 || f.Owners.Count == 0))
             throw new GitLabException("Nhập reviewer (+1) và account dev trước khi bật Auto.");
         if (f.Enabled && f.GitLabWs?.Length > 0 && string.IsNullOrEmpty(f.GitLabTarget))
@@ -377,7 +384,9 @@ public sealed partial class AppHost
             if (ws.Auto.DryRun) { a.GlText = ""; return; }
             var jobs = await RunGitLabJobsAsync(ws, a, cts.Token);
             var pipes = await RunPipeWatchesAsync(ws, a, cts.Token);
-            a.GlText = (jobs > 0 ? $"{jobs} MR chờ sync" : "") + (jobs > 0 && pipes > 0 ? ", " : "") + (pipes > 0 ? $"{pipes} pipeline đang chờ" : "");
+            var deploys = await RunDeployWatchesAsync(ws, a, cts.Token);
+            await RunArgoMonitorAsync(ws, a, cts.Token);
+            a.GlText = string.Join(", ", new[] { jobs > 0 ? $"{jobs} MR chờ sync" : "", pipes > 0 ? $"{pipes} pipeline đang chờ" : "", deploys > 0 ? $"{deploys} app chờ deploy" : "" }.Where(x => x.Length > 0));
             a.Noted.RemoveWhere(k => k.StartsWith("glerr|"));
         }
         catch (OperationCanceledException) when (life.IsCancellationRequested) { }
@@ -402,21 +411,23 @@ public sealed partial class AppHost
         public List<PipeWatch> Pipes { get; set; } = new();
         public List<OtpFix> Otps { get; set; } = new();
         public List<string> XlsxBlocked { get; set; } = new();
+        public List<DeployWatch> Deploys { get; set; } = new();
+        public List<string> ArgoBad { get; set; } = new();
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions WorkJs = new() { IncludeFields = true };
 
     private static string WorkFile(string wsId) => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "auto", wsId + ".json");
+        Platform.AppData, "GitLabMR", "auto", wsId + ".json");
 
     private static void SaveWork(string wsId, AutoState a)
     {
         try
         {
             SavedWork w;
-            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList(), Otps = a.Otps.ToList(), XlsxBlocked = a.XlsxBlocked.ToList() };
+            lock (a.Jobs) w = new SavedWork { Jobs = a.Jobs.ToList(), Pipes = a.Pipes.Concat(a.NewPipes).ToList(), Otps = a.Otps.ToList(), XlsxBlocked = a.XlsxBlocked.ToList(), Deploys = a.Deploys.ToList(), ArgoBad = a.ArgoBad.ToList() };
             var path = WorkFile(wsId);
-            if (w.Jobs.Count == 0 && w.Pipes.Count == 0 && w.Otps.Count == 0 && w.XlsxBlocked.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
+            if (w.Jobs.Count == 0 && w.Pipes.Count == 0 && w.Otps.Count == 0 && w.XlsxBlocked.Count == 0 && w.Deploys.Count == 0 && w.ArgoBad.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(w, WorkJs));
@@ -441,6 +452,8 @@ public sealed partial class AppHost
                 foreach (var pw in w.Pipes) if (!a.Pipes.Any(x => x.Project.Id == pw.Project.Id && x.Iid == pw.Iid)) a.Pipes.Add(pw);
                 foreach (var o in w.Otps) if (DateTime.Now - o.Created <= OtpLife && !a.Otps.Any(x => x.Otp == o.Otp)) a.Otps.Add(o);
                 a.XlsxBlocked.UnionWith(w.XlsxBlocked);
+                a.ArgoBad.UnionWith(w.ArgoBad);
+                foreach (var d in w.Deploys) if (!a.Deploys.Any(x => x.App == d.App && x.Sha == d.Sha)) a.Deploys.Add(d);
             }
             if (w.Jobs.Count + w.Pipes.Count > 0)
                 Log($"[Auto {ws.Name}] Tiếp tục theo dõi {w.Jobs.Count} MR, {w.Pipes.Count} pipeline từ lần chạy trước", LogKind.Info);
@@ -906,7 +919,9 @@ public sealed partial class AppHost
                 if (pl.Status == "success")
                 {
                     Log($"[Auto {ws.Name}] {w.Label}: pipeline #{pl.Id} pass {pl.WebUrl}", LogKind.Success);
-                    await NotifyAsync(ws, "Pipeline pass – build xong", text, pl.WebUrl);
+                    // Có theo dõi Argo: chưa nhắn, đợi pod chạy / lỗi rồi nhắn 1 tin (đỡ tốn lượt Zalo)
+                    if (!AddDeployWatches(ws, a, p, pl, w.Label))
+                        await NotifyAsync(ws, "Pipeline pass – build xong", text, pl.WebUrl);
                 }
                 else await AlertAsync(ws, $"Pipeline {pl.Status} – cần xem", text, pl.WebUrl);
             }

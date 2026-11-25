@@ -39,7 +39,7 @@ public sealed class WsCache
     public BranchList? Branches { get; set; }
 
     private static readonly string Dir = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "cache");
+        Platform.AppData, "GitLabMR", "cache");
 
     private static string FileOf(string wsId) => System.IO.Path.Combine(Dir, wsId + ".json");
 

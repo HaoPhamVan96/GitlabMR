@@ -30,6 +30,7 @@ public sealed class Workspace
 
     [JsonIgnore] public string SecretKey => "ws-" + Id;
     [JsonIgnore] public string ZaloKey => "zalo-" + Id;
+    [JsonIgnore] public string ArgoKey => "argo-" + Id;
 }
 
 /// <summary>
@@ -92,6 +93,30 @@ public sealed class AutoFlow
     public string? ClaudePath { get; set; }
     /// <summary>Model Claude (--model): opus, sonnet, haiku hoặc tên đầy đủ; trống = mặc định của Claude Code.</summary>
     public string? ClaudeModel { get; set; }
+
+    /// <summary>Pipeline pass xong hỏi Argo CD xem pod đã chạy chưa (CrashLoop, ImagePull… thì báo kèm log).</summary>
+    public bool ArgoWatch { get; set; }
+    public string? ArgoUrl { get; set; }
+    /// <summary>Username Argo (trống = ô mật khẩu là token).</summary>
+    public string? ArgoUser { get; set; }
+    /// <summary>Mật khẩu / token Argo đã bảo vệ (Platform.ProtectToken).</summary>
+    public string? ArgoSecret { get; set; }
+    public bool ArgoIgnoreSsl { get; set; }
+    /// <summary>Repo GitLab → app Argo (+ URL kiểm tra port, tuỳ chọn).</summary>
+    public List<ArgoMap> ArgoApps { get; set; } = new();
+    /// <summary>Quá số phút này pod chưa chạy thì báo.</summary>
+    public int ArgoWaitMin { get; set; } = 15;
+    /// <summary>Canh liên tục các app đã map (cả khi người khác merge tay): pod lỗi thì báo 1 lần, khoẻ lại thì báo.</summary>
+    public bool ArgoMonitor { get; set; } = true;
+}
+
+public sealed class ArgoMap
+{
+    /// <summary>Tên repo ngắn (vd core-pr) hoặc đường dẫn đầy đủ.</summary>
+    public string Repo { get; set; } = "";
+    public string App { get; set; } = "";
+    /// <summary>URL gọi thử sau khi pod Ready (vd https://api-testing2.xxx/health) – trả về &lt; 500 là đã lên port.</summary>
+    public string? Url { get; set; }
 }
 
 /// <summary>
@@ -140,7 +165,7 @@ public sealed class AppConfig
         Exclude.Any(x => x.Length > 0 && (path + "/").Contains(x, StringComparison.OrdinalIgnoreCase));
 
     private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitLabMR", "config.json");
+        Platform.AppData, "GitLabMR", "config.json");
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 

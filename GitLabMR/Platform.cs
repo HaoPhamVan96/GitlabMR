@@ -7,6 +7,14 @@ namespace GitLabMR;
 /// <summary>Những thứ phụ thuộc hệ điều hành: lưu token an toàn, clipboard, mở link.</summary>
 internal static class Platform
 {
+    /// <summary>
+    /// Thư mục lưu cấu hình (%APPDATA%). Bản chạy thử (GITLABMR_INSTANCE) đọc biến môi trường APPDATA,
+    /// để trỏ sang thư mục riêng – GetFolderPath không đọc biến này nên bản thử sẽ dùng chung config / auto.lock thật.
+    /// </summary>
+    public static string AppData =>
+        Environment.GetEnvironmentVariable("GITLABMR_INSTANCE") is { Length: > 0 } && Environment.GetEnvironmentVariable("APPDATA") is { Length: > 0 } d
+            ? d : Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
     private const string KeychainService = "GitLabMR";
 
     // ---------------------------------------------------------------- token

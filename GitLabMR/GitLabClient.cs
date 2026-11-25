@@ -109,6 +109,7 @@ public sealed class GlCommit
     public string ShortId { get; set; } = "";
     public string Title { get; set; } = "";
     public string AuthorName { get; set; } = "";
+    public DateTime? CommittedDate { get; set; }
 }
 
 public sealed class GlCompare
@@ -151,6 +152,7 @@ public sealed class GlPipeline
     public string Ref { get; set; } = "";
     public string Sha { get; set; } = "";
     public string WebUrl { get; set; } = "";
+    public DateTime? CreatedAt { get; set; }
 }
 
 /// <summary>Client tối giản cho GitLab REST API v4, xác thực bằng Personal/Project Access Token.</summary>
@@ -253,6 +255,10 @@ public sealed class GitLabClient : IBranchApi
             return false;
         }
     }
+
+    /// <summary>Commit mới nhất của branch (hoặc commit theo sha).</summary>
+    public Task<GlCommit> GetCommitAsync(long projectId, string refName, CancellationToken ct) =>
+        SendAsync<GlCommit>(HttpMethod.Get, $"projects/{projectId}/repository/commits/{Esc(refName)}", null, ct);
 
     /// <summary>Repo đã có commit này chưa (vd chờ code từ Gerrit sync sang).</summary>
     public async Task<bool> CommitExistsAsync(long projectId, string sha, CancellationToken ct)

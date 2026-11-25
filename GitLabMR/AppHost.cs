@@ -172,6 +172,9 @@ public sealed partial class AppHost
                 case "autoTestZalo":
                     await AutoTestZaloAsync(m);
                     break;
+                case "autoTestArgo":
+                    await AutoTestArgoAsync(m);
+                    break;
                 case "autoTestClaude":
                     await AutoTestClaudeAsync(Str(m, "claudePath"), Str(m, "claudeModel"));
                     break;

@@ -424,6 +424,7 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
         <button data-p="gerrit" class="on">Gerrit</button>
         <button data-p="rules">Quy tắc tự động</button>
         <button data-p="gitlab">GitLab</button>
+        <button data-p="argo">Argo CD</button>
         <button data-p="notify">Thông báo</button>
       </nav>
       <div class="apanes">
@@ -480,6 +481,26 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
           <button id="aClaudeTest" class="btn sm" title="Gọi thử Claude Code CLI (cần đăng nhập 1 lần: mở terminal chạy claude)">Kiểm tra</button></div>
         <div class="hint2" style="margin:0">Không tự fix được thì tin báo kèm mã fix: member fix trên branch riêng rồi reply bot <code>&lt;branch&gt; &lt;mã&gt;</code>.</div>
       </div>
+    </div>
+
+    <div class="apane" data-p="argo" hidden>
+      <div class="ph"><h4>Argo CD</h4><span>Pipeline pass xong hỏi Argo xem pod bản mới đã chạy chưa. CrashLoop / ImagePull / chưa Ready thì báo Zalo kèm event + log cuối. Chỉ đọc, không sync gì.</span></div>
+      <label class="mini" title="Cần bật &quot;Kết quả pipeline sau khi merge&quot; (tab Thông báo). Có theo dõi Argo thì tin pipeline pass gộp vào tin deploy cho đỡ tốn lượt Zalo."><input id="argOn" type="checkbox" class="chk"> Theo dõi deploy sau khi pipeline pass</label>
+      <label class="mini" style="padding-left:22px" title="~90 giây xem pod của các app đã map 1 lần, cả khi người khác merge tay vào testing2. Pod CrashLoop / ImagePull / quá giờ chưa Ready thì báo 1 lần (kèm commit mới nhất trên testing2 = ai vừa merge), chạy lại thì báo."><input id="argMon" type="checkbox" class="chk"> Canh liên tục – cả khi người khác merge tay (lỗi báo 1 lần, chạy lại thì báo)</label>
+      <div class="grid">
+        <label for="argUrl">URL</label>
+        <div class="cell"><input id="argUrl" class="in" placeholder="https://argocd.xxx.vn" spellcheck="false">
+          <label class="mini" title="Bỏ qua kiểm tra chứng chỉ SSL (Argo nội bộ tự ký)"><input id="argSsl" type="checkbox" class="chk"> Bỏ qua SSL</label></div>
+        <label for="argUser">Account</label>
+        <div class="cell"><input id="argUser" class="in br" placeholder="username (trống = dùng token)" spellcheck="false" autocomplete="off">
+          <input id="argPass" class="in" type="password" placeholder="mật khẩu hoặc token" autocomplete="new-password"></div>
+        <label for="argApps">Repo = app</label>
+        <textarea id="argApps" class="in" spellcheck="false" style="height:84px;font:12px/1.6 'Cascadia Mono',Consolas,monospace;white-space:pre;overflow:auto" placeholder="Mỗi dòng: repo GitLab = app Argo [URL kiểm tra port]&#10;core-pr = ppx-core-testing2&#10;peoplex-api = ppx-api-testing2 https://api-testing2.xxx.vn/health"></textarea>
+        <label for="argWait">Chờ tối đa</label>
+        <div class="cell"><input id="argWait" class="in" type="number" min="3" max="120" style="flex:0 0 80px"><span class="hint2" style="margin:0">phút pod chưa Ready thì báo</span>
+          <span style="flex:1"></span><button id="argTest" class="btn sm" title="Đăng nhập thử, liệt kê app (xem ở nhật ký), kiểm tra app đã map và quyền đọc log">Kiểm tra</button></div>
+      </div>
+      <div class="hint2" style="margin:0">Account chỉ cần quyền đọc: <code>applications, get</code> và <code>logs, get</code>. Repo ghi tên ngắn (vd <code>core-pr</code>) hoặc đường dẫn đầy đủ; app ghi tên hoặc dán link app từ trình duyệt. URL kiểm tra port trả về mã &lt; 500 là đã lên.</div>
     </div>
 
     <div class="apane" data-p="notify" hidden>
@@ -643,6 +664,9 @@ function renderAuto(a) {
   $('#aSrc').value = a.gitlabSource || '{branch}'; $('#aTgt').value = a.gitlabTarget || '';
   $('#aMerge').checked = a.gitlabMerge ?? true; $('#aOk').checked = !!a.notifySuccess; $('#aPipe').checked = a.notifyPipeline ?? true; $('#aResolve').checked = a.autoResolve ?? true; $('#aP1').checked = a.plusOneOnVeto ?? true; $('#aP1Kw').value = a.plusOneKeyword || 'IgnoreQueryFilter'; $('#aXlsx').checked = a.xlsxGuard ?? true; $('#aXlsxRepos').value = a.xlsxRepos || ''; xlSelRender();
   $('#aFix').checked = !!a.conflictFix; $('#aFixBr').value = a.conflictBranch || '{branch}_fix_conflict'; $('#aClaude').value = a.claudePath || ''; $('#aModel').value = a.claudeModel || '';
+  $('#argOn').checked = !!a.argoWatch; $('#argUrl').value = a.argoUrl || ''; $('#argUser').value = a.argoUser || ''; $('#argSsl').checked = !!a.argoSsl;
+  $('#argApps').value = a.argoApps || ''; $('#argWait').value = a.argoWait || 15; $('#argMon').checked = a.argoMonitor ?? true; $('#argPass').value = '';
+  $('#argPass').placeholder = a.hasArgo ? 'Đã lưu – để trống để dùng lại, "-" để xoá' : 'mật khẩu hoặc token';
   $('#aZalo').value = '';
   $('#aZalo').placeholder = a.hasZalo ? 'Đã lưu bot token – để trống để dùng lại, "-" để xoá' : 'Bot token (Zalo Bot Creator)';
   S.zaloChats = (a.zaloChats || []).map(c => ({ id: c.id, name: c.name || '', type: c.type || '' }));
@@ -667,8 +691,12 @@ function autoPayload() {
     gitlabWs: $('#aGl').value, gitlabSource: $('#aSrc').value.trim(), gitlabTarget: $('#aTgt').value.trim(),
     gitlabMerge: $('#aMerge').checked, notifySuccess: $('#aOk').checked, notifyPipeline: $('#aPipe').checked, autoResolve: $('#aResolve').checked, plusOneOnVeto: $('#aP1').checked, plusOneKeyword: $('#aP1Kw').value.trim(), xlsxGuard: $('#aXlsx').checked, xlsxRepos: $('#aXlsxRepos').value,
     conflictFix: $('#aFix').checked, conflictBranch: $('#aFixBr').value.trim(), claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim(),
-    ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-',
+    ...zaloPayload(), clearZalo: $('#aZalo').value.trim() === '-', ...argoPayload(),
   };
+}
+function argoPayload() {
+  return { argoWatch: $('#argOn').checked, argoUrl: $('#argUrl').value.trim(), argoUser: $('#argUser').value.trim(), argoSecret: $('#argPass').value,
+    argoSsl: $('#argSsl').checked, argoApps: $('#argApps').value, argoWait: +$('#argWait').value || 15, argoMonitor: $('#argMon').checked };
 }
 function zaloPayload() {
   const t = $('#aZalo').value.trim();
@@ -1253,6 +1281,7 @@ $('#zSave').onclick = () => { $('#zModal').hidden = true; send('autoSave', autoP
 $('#zList').addEventListener('input', e => { const i = e.target.dataset.i; if (i != null) S.zaloChats[+i].name = e.target.value; });
 $('#zList').addEventListener('click', e => { const i = e.target.dataset.x; if (i != null) { S.zaloChats.splice(+i, 1); renderZalo(); } });
 $('#aZaloTest').onclick = () => send('autoTestZalo', zaloPayload());
+$('#argTest').onclick = () => send('autoTestArgo', argoPayload());
 $('#aClaudeTest').onclick = () => send('autoTestClaude', { claudePath: $('#aClaude').value.trim(), claudeModel: $('#aModel').value.trim() });
 $('#aSave').onclick = () => { S.autoSaving = true; send('autoSave', autoPayload()); };
 $('#aRun').onclick = () => { send('autoRun'); toast('Đang quét… xem kết quả trong Nhật ký'); };
