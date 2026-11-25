@@ -16,7 +16,7 @@ public sealed partial class AppHost
 
     private const string XlsxNote =
         "File Excel này sinh bằng code (Python / AI) và chưa được mở bằng Excel để Save lại, nên Black Duck nhận nhầm thành thư viện (vd excel_writer). " +
-        "Mở file bằng Microsoft Excel → Save → push patchset mới thì app tự gỡ −2.";
+        "Cần mở file bằng Microsoft Excel, Save lại rồi push patchset mới.";
 
     /// <summary>Lý do file Excel bị coi là sinh bằng code, null = file đã được Excel save (hoặc không đọc được).</summary>
     public static string? XlsxGenerated(byte[] data)
