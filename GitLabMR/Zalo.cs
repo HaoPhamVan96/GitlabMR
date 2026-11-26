@@ -38,6 +38,22 @@ public static class Zalo
         return CallAsync(token, "sendMessage", new { chat_id = chatId.Trim(), text }, ct);
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> BotNames = new();
+
+    /// <summary>Tên hiển thị của bot (getMe), nhớ theo token; lỗi thì trả "".</summary>
+    public static async Task<string> BotNameAsync(string token, CancellationToken ct)
+    {
+        if (BotNames.TryGetValue(token, out var n)) return n;
+        try
+        {
+            var me = await CallAsync(token, "getMe", new { }, ct);
+            n = me.TryGetProperty("display_name", out var d) ? d.GetString() ?? "" : "";
+            BotNames[token] = n;
+            return n;
+        }
+        catch { return ""; }
+    }
+
     /// <summary>1 tin nhắn tới bot.</summary>
     public sealed record Update(string ChatId, string ChatType, string ChatName, string FromName, string Text);
 

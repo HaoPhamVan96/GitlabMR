@@ -105,7 +105,12 @@ public sealed partial class AppHost
                 {
                     Sass[u.ChatId + "|" + u.FromName] = DateTime.Now;
                     var looksLikeCode = codes.Any(cd => cd.Any(char.IsDigit) && cd.Any(char.IsLetter));
-                    _ = Reply(SassLine(u.ChatId, u.FromName, looksLikeCode, a.Otps.Count > 0));
+                    var pending = a.Otps.Count > 0;
+                    _ = Task.Run(async () =>
+                    {
+                        var botName = await Zalo.BotNameAsync(token, ct);
+                        await Reply(SassLine(u.ChatId, u.FromName, u.Text, botName, looksLikeCode, pending));
+                    });
                 }
                 return;
             }
@@ -153,45 +158,187 @@ public sealed partial class AppHost
         finally { lock (a.Fixing) a.Fixing.Remove(key); }
     }
 
-    // ---------------------------------------------------------------- bot đanh đá (cho vui)
+    // ---------------------------------------------------------------- bot đanh đá (cho vui): cô nàng xưng "chị", đáp theo nội dung tin nhắn
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> Sass = new();
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> SassLast = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<string>> SassRecent = new();   // câu vừa nói ở mỗi nhóm
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<DateTime>> SassPokes = new(); // lần tag của mỗi người
     private static readonly TimeSpan SassGap = TimeSpan.FromSeconds(5);
+    private const int SassNoRepeat = 8;
 
     private static readonly string[] SassWrongCode =
     {
-        "Mã gì đây {name}? Bổn bot không nhận hàng giả nha 😤",
-        "{name} gõ mã kiểu gì vậy? Sai, hết hạn, hoặc dùng rồi. Đọc lại tin báo giùm cái 🙄",
-        "Mã này bổn bot không quen. {name} bịa ra đó hả? 😒",
-        "Sai mã rồi {name}. Không phải bổn bot khó tính, là {name} gõ ẩu thôi 💅",
-        "Mã đó hết đát rồi {name} ơi, như lời hứa fix bug của ai đó vậy 🫠",
+        "Mã gì đây {name}? Chị không nhận hàng fake nha 😤",
+        "Mã đó sai, hết hạn hoặc xài rồi. {name} đọc kỹ tin báo giùm chị cái 🙄",
+        "Mã này chị chưa thấy bao giờ. {name} tự chế hả? 😒",
+        "Sai mã rồi cưng. Không phải chị khó, là {name} gõ ẩu 💅",
+        "Mã đó hết đát rồi {name}, y như lời hứa \"mai em fix\" vậy đó 🫠",
+        "Gõ lại cho đàng hoàng đi {name}, 6 ký tự thôi mà cũng sai 😮‍💨",
+        "{name} copy mã từ đâu vậy? Tin báo của chị nằm sờ sờ trên kia kìa 👆",
     };
     private static readonly string[] SassNoConflict =
     {
-        "Có conflict nào đâu mà {name} gọi? Rảnh quá thì đi viết unit test đi 🙄",
-        "{name} tag bổn bot làm gì? Đang yên đang lành, không có gì để merge cả 💅",
-        "Không có conflict, không có việc, không có chuyện để nói với {name} 😌",
-        "Gọi hoài vậy {name}? Conflict còn chưa có mà đã đòi merge, mơ đi 😏",
+        "Có conflict nào đâu mà {name} gọi chị? Rảnh thì đi viết unit test đi 🙄",
+        "Đang yên đang lành, không có gì để merge cả {name} 💅",
+        "Không conflict, không việc, không chuyện để nói với {name} 😌",
+        "Conflict còn chưa có mà {name} đã đòi merge, mơ đi cưng 😏",
+        "Hôm nay testing2 hiền khô, {name} đừng có kiếm chuyện với chị 🙂",
+        "Không có gì cần fix hết. {name} nhớ chị thì nói thẳng, đừng lấy cớ 😏",
     };
-    private static readonly string[] SassGeneric =
+    private static readonly string[] SassSyntax =
     {
-        "Tag bổn bot mà không kèm mã fix, tưởng bổn bot rảnh lắm à {name}? 🙄 Cú pháp: <branch> <mã>",
-        "{name} ơi, cú pháp là <branch> <mã>. Nói mãi không thuộc hả? 😤",
-        "Bổn bot chỉ merge, không tám chuyện. Biết điều thì gửi <branch> <mã> nha {name} 💅",
-        "Đọc lại tin báo conflict giùm cái {name}, mã nằm sờ sờ ra đó 😒",
-        "Lại là {name}... Lần thứ mấy rồi? Gửi đúng <branch> <mã> giùm 🫠",
-        "Nói chuyện với bổn bot thì phải có mã. Không mã, không merge, không tiếp {name} 😌",
+        "Tag chị mà không kèm mã fix, tưởng chị rảnh lắm hả {name}? 🙄 Cú pháp: <branch> <mã>",
+        "{name} ơi, cú pháp là <branch> <mã>. Nói hoài không thuộc hả cưng? 😤",
+        "Chị chỉ merge, không tám chuyện. Biết điều thì gửi <branch> <mã> nha {name} 💅",
+        "Đọc lại tin báo conflict giùm chị cái {name}, mã nằm sờ sờ ra đó 😒",
+        "Không mã, không merge, không tiếp khách. Gửi <branch> <mã> đi {name} 😌",
+        "Chị nói lần cuối nè {name}: <branch> <mã>. Vậy thôi, khó lắm hả? 💁‍♀️",
+    };
+    private static readonly string[] SassGreeting =
+    {
+        "Chào chào cái gì, chị đang bận canh pipeline cho cả đám, có việc thì nói lẹ {name} 💅",
+        "Hello {name}. Chào xong rồi đó, giờ đi làm việc đi 😌",
+        "Ủa {name} chào chị chi vậy? Chị không nhận lời chào suông đâu 🙄",
+        "Hi cưng. Chị nhớ mặt {name} rồi, đừng có tag linh tinh nha 😏",
+        "Chào {name}. Hôm nay code có ngoan không hay lại conflict tùm lum? 🫠",
+        "Alo alo cái gì {name}, chị đâu phải tổng đài 📞",
+    };
+    private static readonly string[] SassThanks =
+    {
+        "Cảm ơn thì để trong tim, lần sau đừng để conflict là được rồi {name} 💅",
+        "Biết điều đó {name}. Chị ghi nhận, nhưng không giảm giá đâu 😌",
+        "Ừ, không có chị thì testing2 nát lâu rồi. Nhớ công chị đó {name} 💁‍♀️",
+        "Cảm ơn suông vậy thôi hả {name}? Trà sữa của chị đâu? 🧋",
+        "Thôi khỏi khách sáo, chị làm vì testing2 chứ không phải vì {name} đâu 😤",
+        "Nói cảm ơn mà không kèm ly cà phê là chưa thật lòng nha {name} ☕",
+    };
+    private static readonly string[] SassCompliment =
+    {
+        "Khen chị cũng không thoát được review đâu {name} 😏",
+        "Biết chị xinh rồi, khỏi nhắc. Code sạch đi rồi hẵng tán {name} 💅",
+        "Yêu chị hả? Chị chỉ yêu commit không conflict thôi {name} 😌",
+        "Nịnh khéo đó {name}, nhưng −2 vẫn là −2 nha 💁‍♀️",
+        "Ngọt vậy chắc lại sắp nhờ chị fix gì rồi đúng không {name}? 🙄",
+        "Chị biết chị giỏi mà, {name} nói thêm chị cũng không ngại nghe đâu 😌✨",
+    };
+    private static readonly string[] SassInsult =
+    {
+        "Ăn nói cho đàng hoàng nha {name}. Chị nhớ dai lắm, conflict sau tự fix đi 😤",
+        "Lỏ là code của {name} đó, chị chỉ báo lại thôi 💅",
+        "Ủa nói ai? Chị có học, không chấp người hay để conflict như {name} 😒",
+        "Bực thì đi uống nước đi {name}, chửi chị thì pipeline cũng không xanh lên đâu 🙄",
+        "Chị ghi tên {name} vào sổ rồi. Lần sau tag chị nhớ kèm lời xin lỗi 😌",
+        "Nói vậy mà nghe được hả {name}? Chị là bot chứ không phải bao cát 😤",
+        "Chửi chị xong code cũng không tự hết bug đâu {name} 💅",
+    };
+    private static readonly string[] SassQuestion =
+    {
+        "Hỏi thì hỏi cho rõ {name}, chị không phải thầy bói 🙄",
+        "Câu hỏi hay đó {name}, nhưng chị không trả lời. Chị chỉ merge thôi 💅",
+        "Sao với gì, đọc lại tin báo trên kia đi {name}, chị ghi rõ hết rồi 😒",
+        "{name} hỏi chị hay hỏi Google? Hỏi chị thì phải có mã 😌",
+        "Muốn biết thì tự mở GitLab ra coi {name}, tay để làm gì? 🙄",
+        "Chị trả lời rồi {name} lại hỏi tiếp, thôi tự tìm hiểu đi cưng 💁‍♀️",
+    };
+    private static readonly string[] SassRequest =
+    {
+        "Đòi merge mà không có mã thì merge bằng niềm tin hả {name}? 😤",
+        "Merge cái gì? Branch đâu, mã đâu? Chị không đọc được suy nghĩ của {name} đâu 🙄",
+        "Pipeline có giờ của nó, {name} hối chị cũng không nhanh hơn đâu 💅",
+        "Deploy thì hỏi Argo, chị chỉ lo merge. Gửi đúng cú pháp rồi nói chuyện tiếp {name} 😌",
+        "Muốn chị làm thì đưa <branch> <mã>, không thì tự làm đi {name} 💁‍♀️",
+        "Nhờ chị thì phải có lễ nghĩa: <branch> <mã>, cảm ơn chị. Vậy đó {name} 😏",
+    };
+    private static readonly string[] SassEmpty =
+    {
+        "Gọi chị rồi im luôn là sao {name}? Có gì nói lẹ 🙄",
+        "Tag chị xong bỏ đó hả {name}? Chị không rảnh chơi trốn tìm 😤",
+        "Ủa rồi sao nữa {name}? Gõ tiếp đi chứ 💅",
+        "Gọi tên chị cho vui hả {name}? Chị nghe rồi, giờ sao? 😒",
+    };
+    private static readonly string[] SassSpam =
+    {
+        "Lần thứ {n} rồi đó {name}. Tag nữa chị block cảm xúc luôn 😤",
+        "{name} ơi, chị nghe rồi, tag {n} lần cũng không thành đúng cú pháp đâu 🙄",
+        "Rảnh quá ha {name}? {n} lần trong 2 phút, chị đếm hết đó 😒",
+        "Thôi đủ rồi {name}. Chị đi dặm phấn, có mã thật thì quay lại 💄",
+        "{n} lần rồi {name}! Chị là bot chứ không phải người yêu, đừng nhắn dồn vậy 💅",
     };
 
-    /// <summary>Câu đanh đá ngẫu nhiên (không lặp lại câu vừa nói ở cùng nhóm), mở đầu bằng tên người tag.</summary>
-    private static string SassLine(string chatId, string name, bool wrongCode, bool hasPending)
+    private static readonly string[] KwInsult = { "ngu", "oc cho", "dm", "dmm", "dcm", "vl", "vcl", "clm", "cc", "cut", "bot lo", "lo vl", "lo vai", "lo qua", "vo dung", "do bot", "bot ngu", "me may" };
+    private static readonly string[] KwThanks = { "cam on", "camon", "thank", "thanks", "tks", "thx", "ty", "cảm ơn" };
+    private static readonly string[] KwCompliment = { "gioi", "xinh", "dep", "yeu", "iu", "cute", "de thuong", "ngoan", "tuyet", "dinh", "pro", "xin xo", "dang yeu" };
+    private static readonly string[] KwGreeting = { "chao", "hello", "hi", "alo", "hey", "xin chao", "morning", "helo" };
+    private static readonly string[] KwRequest = { "merge", "fix", "deploy", "build", "pipeline", "release", "submit", "giup", "nho", "lam giup", "lam di" };
+    private static readonly string[] KwQuestion = { "sao", "gi", "khong", "ko", "chua", "the nao", "bao gio", "o dau", "why", "what", "how", "nao" };
+
+    /// <summary>Bỏ dấu tiếng Việt, chữ thường (để so từ khoá).</summary>
+    private static string Plain(string s)
     {
-        var pool = wrongCode && hasPending ? SassWrongCode : !hasPending ? SassNoConflict : SassGeneric;
-        var prev = SassLast.GetValueOrDefault(chatId);
-        var pick = pool.Where(x => x != prev).ElementAt(RandomNumberGenerator.GetInt32(pool.Count(x => x != prev)));
-        SassLast[chatId] = pick;
-        var who = string.IsNullOrWhiteSpace(name) ? "bạn" : name.Trim();
-        return $"↩ {who}: " + pick.Replace("{name}", who);
+        var d = s.ToLowerInvariant().Replace('đ', 'd').Normalize(System.Text.NormalizationForm.FormD);
+        return new string(d.Where(ch => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+    }
+
+    private static bool HasWord(string plain, string[] kws) =>
+        kws.Any(k => Regex.IsMatch(plain, $@"(^|[^a-z0-9]){Regex.Escape(Plain(k))}($|[^a-z0-9])"));
+
+    /// <summary>Gia vị theo giờ: khuya, trưa, chiều thứ Sáu, sáng thứ Hai, cuối tuần (khoảng 40% số câu).</summary>
+    private static string SassTime()
+    {
+        if (RandomNumberGenerator.GetInt32(100) >= 40) return "";
+        var now = DateTime.Now;
+        if (now.Hour >= 22 || now.Hour < 5) return " Mà khuya rồi đó, đi ngủ đi cho da đẹp 🌙";
+        if (now.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return " Cuối tuần mà còn làm, chăm dữ ha 😏";
+        if (now.TimeOfDay >= new TimeSpan(11, 30, 0) && now.TimeOfDay < new TimeSpan(13, 30, 0)) return " Giờ trưa mà cũng không tha cho chị 🍜";
+        if (now.DayOfWeek == DayOfWeek.Friday && now.Hour >= 15) return " Chiều thứ Sáu rồi, đừng có merge liều nha 🍻";
+        if (now.DayOfWeek == DayOfWeek.Monday && now.Hour < 10) return " Đầu tuần đã kiếm chuyện với chị rồi 😮‍💨";
+        return "";
+    }
+
+    /// <summary>
+    /// Câu đanh đá theo nội dung tin nhắn (chửi / tag dồn / mã sai / cảm ơn / khen / chào / nhờ / hỏi / tag suông),
+    /// không lặp lại {SassNoRepeat} câu gần nhất ở cùng nhóm, mở đầu bằng tên người tag.
+    /// </summary>
+    private static string SassLine(string chatId, string name, string text, string botName, bool wrongCode, bool hasPending)
+    {
+        var who = string.IsNullOrWhiteSpace(name) ? "cưng" : name.Trim();
+
+        // Bỏ phần @tên bot / @mention, chỉ giữ lời người ta nói
+        var said = text;
+        if (botName.Length > 0) said = Regex.Replace(said, "@?" + Regex.Escape(botName), " ", RegexOptions.IgnoreCase);
+        said = Regex.Replace(said, @"@\S+", " ").Trim();
+        var plain = Plain(said);
+
+        // Đếm số lần người này tag trong 2 phút
+        var pokes = SassPokes.GetOrAdd(chatId + "|" + who, _ => new List<DateTime>());
+        int n;
+        lock (pokes) { pokes.Add(DateTime.Now); pokes.RemoveAll(t => DateTime.Now - t > TimeSpan.FromMinutes(2)); n = pokes.Count; }
+
+        var pool =
+            n >= 3 ? SassSpam
+            : HasWord(plain, KwInsult) ? SassInsult
+            : wrongCode && hasPending ? SassWrongCode
+            : HasWord(plain, KwThanks) ? SassThanks
+            : HasWord(plain, KwCompliment) ? SassCompliment
+            : HasWord(plain, KwGreeting) ? SassGreeting
+            : HasWord(plain, KwRequest) ? (hasPending ? SassRequest.Concat(SassSyntax).ToArray() : SassNoConflict)
+            : said.Contains('?') || HasWord(plain, KwQuestion) ? SassQuestion
+            : plain.Length == 0 ? SassEmpty
+            : hasPending ? SassSyntax : SassNoConflict;
+
+        // Không lặp lại các câu vừa nói trong nhóm
+        var recent = SassRecent.GetOrAdd(chatId, _ => new List<string>());
+        string pick;
+        lock (recent)
+        {
+            var fresh = pool.Where(x => !recent.Contains(x)).ToArray();
+            if (fresh.Length == 0) fresh = pool;
+            pick = fresh[RandomNumberGenerator.GetInt32(fresh.Length)];
+            recent.Add(pick);
+            if (recent.Count > SassNoRepeat) recent.RemoveAt(0);
+        }
+        var line = pick.Replace("{name}", who).Replace("{n}", n.ToString());
+        if (pool != SassSpam) line += SassTime().Replace("{name}", who);
+        return $"↩ {who}: " + line;
     }
 
     /// <summary>"Lấy chat ID" khi luồng nghe đang chạy: chờ tin mới mà luồng nghe thấy.</summary>
