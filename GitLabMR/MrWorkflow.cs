@@ -7,6 +7,8 @@ public enum LogKind { Info, Success, Warn, Error }
 public enum MrOutcome
 {
     Ready, NoChanges, MissingBranch, AlreadyOpen, Created, Merged, AutoMerge, NotMerged, BranchCreated, BranchExists, Failed,
+    /// <summary>Đã chạy pipeline mới.</summary>
+    PipelineCreated,
     /// <summary>Gerrit: đã +2 và submit.</summary>
     Submitted,
     /// <summary>Gerrit: đã +2 nhưng chưa submit được (thiếu Verified, conflict…).</summary>
@@ -15,7 +17,7 @@ public enum MrOutcome
 
 public sealed record MrResult(MrOutcome Outcome, string Message, string? Url = null)
 {
-    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge or MrOutcome.BranchCreated or MrOutcome.Submitted;
+    public bool IsGood => Outcome is MrOutcome.Ready or MrOutcome.Created or MrOutcome.Merged or MrOutcome.AutoMerge or MrOutcome.BranchCreated or MrOutcome.Submitted or MrOutcome.PipelineCreated;
 }
 
 /// <summary>Tạo branch hàng loạt: branch mới từ branch gốc, bỏ qua nếu đã có.</summary>

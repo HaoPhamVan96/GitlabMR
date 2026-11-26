@@ -256,6 +256,10 @@ public sealed class GitLabClient : IBranchApi
         }
     }
 
+    /// <summary>Chạy pipeline mới trên branch (như bấm Run pipeline trên GitLab).</summary>
+    public Task<GlPipeline> CreatePipelineAsync(long projectId, string refName, CancellationToken ct) =>
+        SendAsync<GlPipeline>(HttpMethod.Post, $"projects/{projectId}/pipeline", new { @ref = refName }, ct);
+
     /// <summary>Commit mới nhất của branch (hoặc commit theo sha).</summary>
     public Task<GlCommit> GetCommitAsync(long projectId, string refName, CancellationToken ct) =>
         SendAsync<GlCommit>(HttpMethod.Get, $"projects/{projectId}/repository/commits/{Esc(refName)}", null, ct);

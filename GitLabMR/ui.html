@@ -349,8 +349,19 @@ textarea.in{height:54px;padding:6px 9px;resize:none}
   <button id="btnBranches" class="icon" title="Tải lại branch từ GitLab (của các project đang chọn)"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L3 9M3 4v5h5M4 13a8 8 0 0 0 14.7 4.3L21 15M21 20v-5h-5"/></svg></button>
   <span id="sepMr" class="sep"></span>
   <label id="mergeSw" class="switch" title="Tạo xong merge luôn"><input id="merge" type="checkbox"><span class="tr"></span>Merge</label>
+  <button id="btnPipe" class="btn sm" title="Chạy pipeline mới trên 1 branch cho các project đã tick – không tạo MR, không merge"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Pipeline</button>
   <button id="btnOpts" class="icon" title="Tuỳ chọn khác"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
 
+  <div id="pipePop" class="card pop" hidden>
+    <label class="f" for="pipeRef">Chạy pipeline trên branch</label>
+    <input id="pipeRef" class="in" list="pipeList" placeholder="testing2" spellcheck="false" autocomplete="off">
+    <datalist id="pipeList"></datalist>
+    <span class="hint">Chạy pipeline mới (như Run pipeline trên GitLab) cho các project đang tick. Không tạo MR, không merge.</span>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+      <button id="pipeCheck" class="btn sm" title="Xem project nào có branch này, chưa chạy gì">Kiểm tra</button>
+      <button id="pipeRun" class="btn sm primary">Chạy pipeline</button>
+    </div>
+  </div>
   <div id="pop" class="card pop" hidden>
     <label class="opt"><input id="autoMerge" type="checkbox" class="chk">Pipeline đang chạy → tự merge khi pass</label>
     <label class="opt"><input id="removeSource" type="checkbox" class="chk">Xoá branch nguồn sau khi merge</label>
@@ -553,8 +564,8 @@ const inTab = p => S.tab === 'all' || p.fav;
 const tabProjects = () => S.projects.filter(inTab);
 const chosen = () => S.projects.filter(p => inTab(p) && S.sel.has(p.id));
 
-const CLS = { Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', BranchCreated: 'done', BranchExists: 'mute', Failed: 'err', Submitted: 'done', Approved: 'warn' };
-const LABEL = { Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi', Submitted: 'Đã submit', Approved: '+2, chưa submit' };
+const CLS = { PipelineCreated: 'done', Ready: 'ok', Created: 'ok', AutoMerge: 'ok', Merged: 'done', NoChanges: 'mute', AlreadyOpen: 'info', MissingBranch: 'warn', NotMerged: 'warn', BranchCreated: 'done', BranchExists: 'mute', Failed: 'err', Submitted: 'done', Approved: 'warn' };
+const LABEL = { PipelineCreated: 'Đã chạy pipeline', Ready: 'Sẵn sàng', Created: 'Đã tạo', AutoMerge: 'Auto-merge', Merged: 'Đã merge', NoChanges: 'Không đổi', AlreadyOpen: 'MR có sẵn', MissingBranch: 'Thiếu branch', NotMerged: 'Chưa merge', BranchCreated: 'Đã tạo branch', BranchExists: 'Đã có branch', Failed: 'Lỗi', Submitted: 'Đã submit', Approved: '+2, chưa submit' };
 // Gerrit + chế độ MR = duyệt change: tải change đang mở của repo đã tick, tick change rồi Submit (tự +2)
 const review = () => S.kind === 'gerrit' && S.mode === 'mr';
 S.kindDraft = {}; // link đang nhập theo từng loại server (GitLab / Gerrit) khi đổi loại trong cài đặt
@@ -579,7 +590,7 @@ function applyMode() {
   $('#source').title = br ? 'Branch gốc để tách ra (vd: prod)' : 'Branch nguồn của MR';
   $('#target').title = br ? 'Tên branch mới sẽ tạo trên mọi repo đã tick' : 'Branch đích của MR';
   const rv = review();
-  for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts']) $(id).hidden = br || rv;
+  for (const id of ['#swap', '#sepMr', '#mergeSw', '#btnOpts', '#btnPipe']) $(id).hidden = br || rv;
   $('#arrow').hidden = !br;
   $('#source').parentElement.hidden = rv;   // duyệt change chỉ cần branch đích (tuỳ chọn)
   if (rv) {
@@ -596,7 +607,7 @@ function applyMode() {
   });
   $('#btnCheck').textContent = rv ? 'Tải change' : 'Kiểm tra';
   $('#btnCheck').title = rv ? 'Tải change đang mở của các repo đã tick (không tick = mọi repo trong tab)' : 'Kiểm tra trước, chưa tạo gì';
-  if (br || rv) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
+  if (br || rv) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); $('#pipePop').hidden = true; $('#btnPipe').classList.remove('on'); }
   runLabel();
 }
 function setMode(m) {
@@ -1057,9 +1068,38 @@ function run(dryRun) {
   $('#modal').hidden = false; $('#mYes').focus();
   $('#mYes').onclick = () => { $('#modal').hidden = true; send('run', payload); };
 }
+/* ---------- Chạy pipeline mới trên 1 branch (không MR) */
+function pipeOpen() {
+  const p = $('#pipePop'); p.hidden = !p.hidden; $('#btnPipe').classList.toggle('on', !p.hidden);
+  $('#pop').hidden = true; $('#btnOpts').classList.remove('on');
+  if (p.hidden) return;
+  $('#pipeList').innerHTML = (AC_ALL || []).slice(0, 300).map(b => `<option value="${esc(b.name)}">`).join('');
+  if (!$('#pipeRef').value) $('#pipeRef').value = $('#target').value.trim();
+  $('#pipeRun').textContent = 'Chạy pipeline' + (chosen().length ? ` (${chosen().length})` : '');
+  $('#pipeRef').focus(); $('#pipeRef').select();
+}
+function pipeRun(dryRun) {
+  if (S.busy) return;
+  if (!S.connected) return toast('Kết nối trước đã', true);
+  const ref = $('#pipeRef').value.trim();
+  if (!ref) return toast('Nhập branch cần chạy pipeline', true);
+  const list = chosen();
+  if (!list.length) return toast('Chưa chọn project nào', true);
+  const payload = { mode: 'pipeline', ref, dryRun, ids: list.map(p => p.id) };
+  S.pair = `pipeline ${ref}`;
+  $('#pipePop').hidden = true; $('#btnPipe').classList.remove('on');
+  if (dryRun) return send('run', payload);
+  $('#mTitle').textContent = `Chạy pipeline cho ${list.length} project?`;
+  $('#mPair').textContent = `Branch ${ref}`;
+  $('#mList').innerHTML = list.map(p => `<li>${esc(p.ns + p.name)}</li>`).join('');
+  $('#mWarn').hidden = true;
+  $('#mYes').textContent = 'Chạy pipeline';
+  $('#modal').hidden = false; $('#mYes').focus();
+  $('#mYes').onclick = () => { $('#modal').hidden = true; send('run', payload); };
+}
 function setBusy(b) {
   S.busy = b;
-  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
+  for (const id of ['#btnConnect', '#btnCheck', '#btnRun', '#btnPipe', '#url', '#token', '#source', '#target', '#swap', '#btnBranches', '#btnReload', '#btnAdd', '#wsAdd', '#wsDel', '#wsName']) $(id).disabled = b;
   document.querySelectorAll('#modeSeg button, #kindSeg button').forEach(x => x.disabled = b);
   $('#gUser').disabled = b;
   renderWsTabs();
@@ -1068,7 +1108,7 @@ function setBusy(b) {
   counts();
 }
 function showSummary(counts, dryRun) {
-  const order = ['Submitted', 'Merged', 'Created', 'AutoMerge', 'BranchCreated', 'Ready', 'AlreadyOpen', 'BranchExists', 'Approved', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
+  const order = ['PipelineCreated', 'Submitted', 'Merged', 'Created', 'AutoMerge', 'BranchCreated', 'Ready', 'AlreadyOpen', 'BranchExists', 'Approved', 'NotMerged', 'MissingBranch', 'NoChanges', 'Failed'];
   $('#sum').innerHTML = order.filter(k => counts[k]).map(k => `<span class="st st-${CLS[k]}">${counts[k]} ${LABEL[k]}</span>`).join('');
   $('#pickReady').hidden = !(dryRun && counts.Ready);
 }
@@ -1372,9 +1412,14 @@ $('#ac').addEventListener('mousemove', e => {
   AC.idx = +it.dataset.i; acHighlight();
 });
 for (const id of ['#merge', '#autoMerge', '#removeSource', '#squash']) $(id).addEventListener('change', () => { runLabel(); saveOpts(); });
+$('#btnPipe').onclick = e => { e.stopPropagation(); pipeOpen(); };
+$('#pipeRun').onclick = () => pipeRun(false);
+$('#pipeCheck').onclick = () => pipeRun(true);
+$('#pipeRef').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pipeRun(false); } else if (e.key === 'Escape') { e.stopPropagation(); $('#pipePop').hidden = true; $('#btnPipe').classList.remove('on'); } });
 $('#btnOpts').onclick = e => { e.stopPropagation(); const p = $('#pop'); p.hidden = !p.hidden; $('#btnOpts').classList.toggle('on', !p.hidden); };
 document.addEventListener('click', e => {
   if (!$('#pop').hidden && !e.target.closest('#pop') && !e.target.closest('#btnOpts')) { $('#pop').hidden = true; $('#btnOpts').classList.remove('on'); }
+  if (!$('#pipePop').hidden && !e.target.closest('#pipePop') && !e.target.closest('#btnPipe')) { $('#pipePop').hidden = true; $('#btnPipe').classList.remove('on'); }
 });
 
 $('#filter').addEventListener('input', render);

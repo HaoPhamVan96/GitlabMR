@@ -685,7 +685,14 @@ public sealed partial class AppHost
 
         var dryRun = Bool(m, "dryRun");
         var branchMode = Str(m, "mode") == "branch";
+        var pipeMode = Str(m, "mode") == "pipeline";
         var glab = gl as GitLabClient; // MR chỉ có trên GitLab
+        if (pipeMode)
+        {
+            if (glab == null) throw new GitLabException("Chạy pipeline chỉ dùng cho GitLab.");
+            await RunPipelinesAsync(st, glab, Str(m, "ref"), Ids(m), dryRun, ct);
+            return;
+        }
         if (!branchMode && glab == null) throw new GitLabException("Gerrit: chế độ MR dùng nút Tải change / Submit.");
         string source, target;
         if (branchMode)
@@ -767,6 +774,53 @@ public sealed partial class AppHost
         Send(new { type = "done", dryRun, counts });
         Log($"── Xong {results.Length} project: " +
             string.Join(", ", results.GroupBy(x => x.Outcome).Select(g => $"{g.Key} {g.Count()}")), LogKind.Success);
+    }
+
+    /// <summary>Chạy pipeline mới trên 1 branch cho các project đã tick (không tạo MR). dryRun: chỉ xem branch có chưa.</summary>
+    private async Task RunPipelinesAsync(WsState st, GitLabClient gl, string refName, List<long> ids, bool dryRun, CancellationToken ct)
+    {
+        refName = refName.Trim();
+        if (refName.Length == 0) throw new GitLabException("Nhập branch cần chạy pipeline.");
+        var targets = ids.Where(st.Projects.ContainsKey).Select(id => st.Projects[id]).ToList();
+        if (targets.Count == 0) throw new GitLabException("Chưa chọn project nào.");
+        _cfg.RememberBranch(refName);
+        TrySave();
+        Send(new { type = "branches", branches = _cfg.BranchHistory });
+        Log($"── [{_ws.Name}] {(dryRun ? "Kiểm tra" : "Chạy")} pipeline trên {refName} · {targets.Count} project", LogKind.Info);
+        foreach (var p in targets) Send(new { type = "row", id = p.Id, state = "wait" });
+
+        using var gate = new SemaphoreSlim(MaxParallel);
+        var results = await Task.WhenAll(targets.Select(async p =>
+        {
+            MrResult res;
+            try
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    Send(new { type = "row", id = p.Id, state = "run" });
+                    if (!await gl.BranchExistsAsync(p.Id, refName, ct)) res = new MrResult(MrOutcome.MissingBranch, $"Không có branch {refName}");
+                    else if (dryRun) res = new MrResult(MrOutcome.Ready, $"Có branch {refName} – sẵn sàng chạy pipeline");
+                    else
+                    {
+                        var pl = await gl.CreatePipelineAsync(p.Id, refName, ct);
+                        res = new MrResult(MrOutcome.PipelineCreated, $"Pipeline #{pl.Id} trên {refName} ({pl.Status})", pl.WebUrl);
+                        Log($"[{p.PathWithNamespace}] Pipeline #{pl.Id} trên {refName} {pl.WebUrl}", LogKind.Success);
+                    }
+                }
+                finally { gate.Release(); }
+            }
+            catch (Exception ex)
+            {
+                res = new MrResult(MrOutcome.Failed, ex is OperationCanceledException ? "Đã dừng" : Describe(ex));
+                if (ex is not OperationCanceledException) Log($"[{p.PathWithNamespace}] Pipeline: {res.Message}", LogKind.Error);
+            }
+            SendRow(p, res);
+            return res;
+        }));
+        var counts = results.GroupBy(x => x.Outcome).ToDictionary(g => g.Key.ToString(), g => g.Count());
+        Send(new { type = "done", dryRun, counts });
+        Log($"── Xong {results.Length} project: " + string.Join(", ", results.GroupBy(x => x.Outcome).Select(g => $"{g.Key} {g.Count()}")), LogKind.Success);
     }
 
     private void SendRow(GlProject p, MrResult r) =>
