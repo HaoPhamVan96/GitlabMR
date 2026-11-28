@@ -77,6 +77,14 @@ public sealed partial class AppHost
     {
         var tag = $"[Auto {ws.Name}]";
         Task Reply(string text) => Zalo.SendAsync(token, u.ChatId, text, ct);
+
+        // Lệnh "merge [repo] <branch>": merge branch vào testing2 (vd branch thêm log để test)
+        if (ParseMergeCmd(u.Text, await Zalo.BotNameAsync(token, ct)) is { } cmd)
+        {
+            await MergeCmdAsync(ws, a, u, cmd.Repo, cmd.Branch, Reply, ct);
+            return;
+        }
+
         OtpFix? o = null; string? branch = null;
         lock (a.Jobs)
         {
@@ -155,6 +163,115 @@ public sealed partial class AppHost
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { try { await Reply($"Lỗi khi merge {branch}: {Describe(ex)}"); } catch { } }
+        finally { lock (a.Fixing) a.Fixing.Remove(key); }
+    }
+
+    // ---------------------------------------------------------------- lệnh merge branch vào testing2
+    private const string MergeTarget = "testing2";
+    private static readonly HashSet<string> EnvBranches = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "testing", "testing2", "testing3", "uat", "pre-uat", "preuat", "staging", "pre-staging", "prod", "production",
+        "dev", "develop", "main", "master", "release",
+    };
+
+    /// <summary>"@Bot merge feature/x" hoặc "@Bot merge core-pr feature/x" (repo trước / sau đều được). null = không phải lệnh merge.</summary>
+    private static (string? Repo, string Branch)? ParseMergeCmd(string text, string botName)
+    {
+        var said = text;
+        if (botName.Length > 0) said = Regex.Replace(said, "@?" + Regex.Escape(botName), " ", RegexOptions.IgnoreCase);
+        said = Regex.Replace(said, @"@\S+", " ").Trim();
+        var m = Regex.Match(said, @"^merge\s+(\S+)(?:\s+(\S+))?\s*$", RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        var x = m.Groups[1].Value.Trim('`', '"', '\'', '<', '>');
+        if (!m.Groups[2].Success) return (null, x);
+        var y = m.Groups[2].Value.Trim('`', '"', '\'', '<', '>');
+        // Branch thường có dấu "/", repo thì không; không rõ thì coi từ thứ 2 là branch
+        return x.Contains('/') && !y.Contains('/') ? (y, x) : (x, y);
+    }
+
+    private async Task MergeCmdAsync(Workspace ws, AutoState a, Zalo.Update u, string? repo, string branch,
+        Func<string, Task> reply, CancellationToken ct)
+    {
+        var tag = $"[Auto {ws.Name}]";
+        var who = u.FromName.Length > 0 ? u.FromName : "member";
+        var head = $"↩ {who}: merge {branch} → {MergeTarget}";
+        if (EnvBranches.Contains(branch))
+        { await reply($"↩ {who}: {branch} là branch môi trường, không merge vào {MergeTarget} được. Cú pháp: merge [repo] <branch feature>"); return; }
+        if (ws.Auto?.DryRun == true) { await reply($"↩ {who}: Auto đang ở chế độ Chạy thử, không merge."); return; }
+
+        var key = "merge|" + branch.ToLowerInvariant();
+        bool busy;
+        lock (a.Fixing) busy = !a.Fixing.Add(key);
+        if (busy) { await reply($"↩ {who}: {branch} đang được merge, chờ chút."); return; }
+        try
+        {
+            var g = AutoGitLab(ws, a);
+            if (g == null) { await reply($"↩ {who}: Auto chưa chọn workspace GitLab, không merge được."); return; }
+            var gl = g.Value.Gl;
+            var list = g.Value.Projects;
+            if (repo != null)
+            {
+                var r = repo.Trim('/');
+                var hit = list.Where(p => p.Path.Equals(r, StringComparison.OrdinalIgnoreCase)
+                                          || p.Path.EndsWith("/" + r, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (hit.Count == 0) { await reply($"↩ {who}: không có repo '{repo}' trong {g.Value.Ws.Name}. Cú pháp: merge <branch> hoặc merge <repo> <branch>, vd merge core-pr feature/x"); return; }
+                if (hit.Count > 1) { await reply($"↩ {who}: '{repo}' khớp {hit.Count} repo: {string.Join(", ", hit.Select(p => p.Path).Take(5))}. Ghi đủ đường dẫn giúp chị."); return; }
+                list = hit;
+            }
+            Log($"{tag} {who} (Zalo): merge {branch} → {MergeTarget} · tìm trong {list.Count} repo", LogKind.Info);
+            if (list.Count > 1) await reply($"↩ {who}: đang tìm {branch} trong {list.Count} repo…");
+
+            // Repo nào có branch này (hỏi song song, tối đa 6 cùng lúc)
+            var found = new System.Collections.Concurrent.ConcurrentBag<CachedProject>();
+            using (var gate = new SemaphoreSlim(6))
+                await Task.WhenAll(list.Select(async p =>
+                {
+                    await gate.WaitAsync(ct);
+                    try { if (await gl.BranchExistsAsync(p.Id, branch, ct)) found.Add(p); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { }
+                    finally { gate.Release(); }
+                }));
+            if (found.IsEmpty)
+            { await reply($"↩ {who}: không thấy branch {branch} ở {(repo != null ? list[0].Path : "repo nào")}. Push lên GitLab chưa?"); return; }
+
+            var lines = new List<string> { head };
+            var changes = $"(merge qua Zalo bởi {who})";
+            foreach (var cp in found.OrderBy(p => p.Path, StringComparer.OrdinalIgnoreCase))
+            {
+                var p = ToGl(cp);
+                var name = p.PathWithNamespace.Split('/').Last();
+                var label = $"{p.PathWithNamespace} {branch} → {MergeTarget}";
+                try
+                {
+                    var opts = new MrOptions(branch, MergeTarget, _cfg.TitleTemplate, $"Merge {branch} vào {MergeTarget} qua Zalo Bot, yêu cầu bởi {who}.",
+                        true, _cfg.AutoMerge, false, _cfg.Squash);
+                    var res = await MrWorkflow.RunAsync(gl, p, opts, (msg, k) => Log($"{tag} [{p.PathWithNamespace}] {msg}", k), ct);
+                    var watch = res.Outcome is MrOutcome.Merged or MrOutcome.AutoMerge && ws.Auto!.NotifyPipeline && MrIid(res.Url) is { };
+                    if (watch)
+                    {
+                        a.NewPipes.Enqueue(new PipeWatch { Project = p, Iid = MrIid(res.Url)!.Value, Label = label, MrUrl = res.Url!, Changes = changes });
+                        WakeGitLab(a);
+                    }
+                    var conflict = res.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase);
+                    lines.Add(res.Outcome switch
+                    {
+                        MrOutcome.Merged => $"✅ {name}: đã merge {res.Url}",
+                        MrOutcome.AutoMerge => $"⏳ {name}: pipeline đang chạy, pass sẽ tự merge {res.Url}",
+                        MrOutcome.NoChanges => $"➖ {name}: không có commit mới",
+                        _ when conflict && ws.Auto!.ConflictFix && IsFixTarget(MergeTarget) => $"⚠️ {name}: conflict → đang auto-fix {res.Url}",
+                        _ when conflict => $"⚠️ {name}: conflict {res.Url}" + OtpHint(ws, a, p, branch, MergeTarget, label, changes, null),
+                        _ => $"❌ {name}: {res.Message} {res.Url}",
+                    });
+                    if (conflict && ws.Auto!.ConflictFix && IsFixTarget(MergeTarget) && res.Outcome is not (MrOutcome.Merged or MrOutcome.AutoMerge))
+                        StartConflictFix(ws, a, g.Value.Ws, gl, p, branch, MergeTarget, changes, res.Url);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { lines.Add($"❌ {name}: {Describe(ex)}"); }
+            }
+            if (ws.Auto!.NotifyPipeline && lines.Any(l => l.StartsWith("✅") || l.StartsWith("⏳"))) lines.Add("Pipeline xong chị báo tiếp.");
+            await reply(string.Join("\n", lines));
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { try { await reply($"↩ {who}: lỗi khi merge {branch}: {Describe(ex)}"); } catch { } }
         finally { lock (a.Fixing) a.Fixing.Remove(key); }
     }
 
